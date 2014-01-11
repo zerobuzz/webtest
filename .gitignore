@@ -8,3 +8,4 @@ cabal-dev
 /SourceGraph
 /src/.quickcheck-stash
 /.cabal-sandbox
+*~

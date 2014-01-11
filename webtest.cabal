@@ -19,8 +19,10 @@ library
   hs-source-dirs:
     src
   exposed-modules:
+    Test.QuickCheck.Store,
     Test.WebApp.Arbitrary,
     Test.WebApp.ArbitraryOrphans,
+    Test.WebApp.HTTP.Property,
     Test.WebApp.HTTP.Util,
     Test.WebDriver.Missing
 
@@ -32,14 +34,22 @@ library
     aeson-pretty >= 0.7,
     attoparsec >= 0.10,
     bytestring >= 0.10,
+    cereal >= 0.4,
     containers >= 0.5,
+    directory >= 1.2,
+    filepath >= 1.3,
     hashable >= 1.2,
     HTTP,
     network >= 2.4,
+    old-locale >= 1.0,
+    old-time >= 1.1,
+    process >= 1.1,
     QuickCheck >= 2.6,
+    safe >= 0.3,
     snap-core >= 0.9,
     string-conversions,
     text >= 0.11,
+    time >= 1.4,
     unordered-containers >= 0.2,
     vector >= 0.10,
     webdriver >= 0.5
