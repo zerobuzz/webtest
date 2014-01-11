@@ -19,6 +19,7 @@ library
   hs-source-dirs:
     src
   exposed-modules:
+    Test.QuickCheck.Missing,
     Test.QuickCheck.Store,
     Test.WebApp.Arbitrary,
     Test.WebApp.ArbitraryOrphans,
