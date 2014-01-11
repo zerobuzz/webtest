@@ -30,6 +30,7 @@ import Control.Monad hiding (mapM, forM)
 import Data.Function
 import Data.Maybe
 import Data.String.Conversions
+import Network.HTTP
 import Network.URI
 import Prelude hiding (mapM)
 import Test.QuickCheck as Q
@@ -37,7 +38,6 @@ import Test.QuickCheck.Property
 
 import qualified Data.Aeson as JS
 import qualified Data.Serialize as Cereal
-import qualified Network.HTTP as NH
 
 import Test.WebApp.HTTP.Util
 
@@ -71,9 +71,9 @@ propCereal x  = case Cereal.decode $ Cereal.encode x of
 
 
 -- | Check if server survives white HTTP noise without 5xx responses.
-prop_httpWhiteNoise :: JS.ToJSON v => NH.RequestMethod -> URI -> Either ST v -> Q.Property
-prop_httpWhiteNoise method path contentE = morallyDubiousIOProperty $ do
+propHttpWhiteNoise :: JS.ToJSON v => RequestMethod -> URI -> Either ST v -> Q.Property
+propHttpWhiteNoise method path contentE = morallyDubiousIOProperty $ do
     response <- performReq False method path [] contentE
-    return $ case NH.rspCode response of
+    return $ case rspCode response of
         (5, _, _) -> False
         _         -> True

@@ -7,11 +7,10 @@
 
 {-# OPTIONS -fwarn-unused-imports -fwarn-incomplete-patterns #-}
 
-{-| Some orphan Arbitrary instances for types from other packages.
-You can avoid any problems from orphan instances by not importing this
-module, but instead copying the orphans you need into your own
-code. #-}
-module Test.WebApp.ArbitraryOrphans where
+{-| Some instances for types from other packages.  You can avoid any
+orphan problems by not importing this module, but instead copying the
+orphans you need into your own code. #-}
+module Test.WebApp.Orphans where
 
 import Control.Applicative
 import Control.Monad hiding (mapM, forM)
@@ -22,6 +21,8 @@ import Data.List
 import Data.Map (Map)
 import Data.String.Conversions
 import Data.Traversable
+import Network.HTTP
+import Network.URI
 import Prelude hiding (mapM)
 import System.IO.Unsafe (unsafePerformIO)
 import Test.QuickCheck as Q
@@ -29,8 +30,8 @@ import Test.QuickCheck as Q
 import qualified Data.Aeson as JS
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map hiding (Map)
+import qualified Data.Serialize as Cereal
 import qualified Data.Vector as V
-import qualified Network.HTTP as NH
 import qualified Snap.Core as Snap
 
 import Test.WebApp.Arbitrary
@@ -68,16 +69,16 @@ instance Arbitrary Snap.Method where
                                 Snap.Method "custom"]
   shrink _ = []
 
-instance Arbitrary NH.RequestMethod where
-  arbitrary = oneof $ map pure $ NH.GET :
-                                 NH.HEAD :
-                                 NH.POST :
-                                 NH.PUT :
-                                 NH.DELETE :
-                                 NH.TRACE :
-                                 NH.OPTIONS :
-                                 NH.CONNECT :
-                                 NH.Custom "custom" :
+instance Arbitrary RequestMethod where
+  arbitrary = oneof $ map pure $ GET :
+                                 HEAD :
+                                 POST :
+                                 PUT :
+                                 DELETE :
+                                 TRACE :
+                                 OPTIONS :
+                                 CONNECT :
+                                 Custom "custom" :
                                  []
   shrink _ = []
 
@@ -156,3 +157,60 @@ instance Fuzz JS.Value where
                          , (fromRational $ toRational i)+1e-5, (fromRational $ toRational i)-1e-5
                          ]) ++
           (JS.String <$> (s : ss))
+
+
+
+-- * serialization
+
+-- | "Network.HTTP" request methods.  The Custom "String" case is not
+-- covered.
+instance Cereal.Serialize RequestMethod where
+  put = Cereal.put . f
+    where
+      f :: RequestMethod -> String
+      f OPTIONS    = "OPTIONS"
+      f HEAD       = "HEAD"
+      f GET        = "GET"
+      f PUT        = "PUT"
+      f POST       = "POST"
+      f DELETE     = "DELETE"
+      f TRACE      = "TRACE"
+      f CONNECT    = "CONNECT"
+      f oops       = error $ "instance Serialize RequestMethod: unsuppoerted constructor: " ++ show oops
+
+  get = Cereal.get >>= f
+    where
+      f :: String -> Cereal.Get RequestMethod
+      f "OPTIONS"     = return OPTIONS
+      f "HEAD"        = return HEAD
+      f "GET"         = return GET
+      f "PUT"         = return PUT
+      f "POST"        = return POST
+      f "DELETE"      = return DELETE
+      f "TRACE"       = return TRACE
+      f "CONNECT"     = return CONNECT
+      f _             = mzero
+
+instance Cereal.Serialize URI where
+  put (URI uriScheme
+           uriAuthority
+           uriPath
+           uriQuery
+           uriFragment) = do
+      Cereal.put uriScheme
+      Cereal.put uriAuthority
+      Cereal.put uriPath
+      Cereal.put uriQuery
+      Cereal.put uriFragment
+
+  get = URI <$> Cereal.get <*> Cereal.get <*> Cereal.get <*> Cereal.get <*> Cereal.get
+
+instance Cereal.Serialize URIAuth where
+  put (URIAuth uriUserInfo
+               uriRegName
+               uriPort) = do
+      Cereal.put uriUserInfo
+      Cereal.put uriRegName
+      Cereal.put uriPort
+
+  get = URIAuth <$> Cereal.get <*> Cereal.get <*> Cereal.get

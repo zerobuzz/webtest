@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings     #-}
-{-# OPTIONS -fwarn-unused-imports  #-}
+
+{-# OPTIONS -fwarn-unused-imports #-}
 
 module Test.WebDriver.Missing
 where
