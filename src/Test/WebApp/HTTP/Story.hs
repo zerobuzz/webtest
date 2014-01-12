@@ -489,10 +489,10 @@ data StoryError c =
 -- comprehensive error message.  The first argument states whether
 -- surrounding quotes (double or single) should be matched away
 -- together with the reference string.
-reduceRefs :: Bool -> RefCtx -> (IxRef -> LBS) -> LBS -> LBS
+reduceRefs :: Bool -> RefCtx -> (IxRef -> Maybe LBS) -> LBS -> LBS
 reduceRefs quoted ctx rewrite js =
       if null badrefs
-        then replaceRegexAll js pattern (fmap rewrite . extract quoted)
+        then replaceRegexAll js pattern (\ match -> extract quoted match >>= rewrite)
         else error $ "reduceRefs: illegal references: " ++ show badrefs
   where
     pattern :: SBS = q <> "___SCRIPT_REF___(\\d+)?" <> q
@@ -521,7 +521,7 @@ reduceRefs quoted ctx rewrite js =
 test_reduceRefs :: Bool
 test_reduceRefs = f True == ["IxRefRoot","IxRef 0"] && f False == ["IxRefRoot","IxRef 0"]
   where
-    f quote = map (reduceRefs quote ctx (cs . show) . scriptRefToSBS quote) refs
+    f quote = map (reduceRefs quote ctx (Just . cs . show) . scriptRefToSBS quote) refs
     ctx = RefCtx (Set.fromList [0]) (Set.fromList refs) Set.empty
     refs = [IxRefRoot, IxRef 0]
 
@@ -539,15 +539,15 @@ scriptRefToSBS True  (IxRef i) = "\"___SCRIPT_REF___" <> cs (show i) <> "\""
 -- | Dynamic 'reduceRefs', as needed for 'Story'.  (See 'reduceRefsPy'
 -- for a static variant.)
 reduceRefsDyn :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-         => Bool -> URI -> (StoryItem c -> URI) -> Story c
+         => Bool -> URI -> (StoryItem c -> Maybe URI) -> Story c
          -> SBS -> SBS
-reduceRefsDyn quoted rootPath constructPath story = cs . reduceRefs quoted ctx (qu . ru . lu) . cs
+reduceRefsDyn quoted rootPath constructPath story = cs . reduceRefs quoted ctx (fmap (qu . ru) . lu) . cs
   where
     script :: Script c = Script . map fst $ fromStory story
     ctx    :: RefCtx   = scriptContext script
 
-    lu :: IxRef -> URI   -- lookup xref
-    lu IxRefRoot = rootPath
+    lu :: IxRef -> Maybe URI   -- lookup xref
+    lu IxRefRoot = Just rootPath
     lu (IxRef i) = case filter ((== i) . srqSerial . fst) $ fromStory story of
                      [item] -> constructPath item
 
@@ -559,14 +559,14 @@ reduceRefsDyn quoted rootPath constructPath story = cs . reduceRefs quoted ctx (
 
 
 reduceRefsDynAssoc :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-         => URI -> (StoryItem c -> URI) -> Story c
+         => URI -> (StoryItem c -> Maybe URI) -> Story c
          -> [(SBS, SBS)] -> [(SBS, SBS)]
 reduceRefsDynAssoc root construct story = map (first f . second f)
   where f = reduceRefsDyn False root construct story
 
 
 reduceRefsDynBody :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-         => URI -> (StoryItem c -> URI) -> Story c
+         => URI -> (StoryItem c -> Maybe URI) -> Story c
          -> Either SBS c -> Either SBS c
 reduceRefsDynBody root construct story (Left s) =
     Left (reduceRefsDyn True root construct story s)
@@ -582,7 +582,7 @@ reduceRefsDynBody root construct story (Right c) =
 -- errors are skipped (response is 'Nothing').  See 'Script' for
 -- properties of serial numbers.
 runScript :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-          => Bool -> URI -> (StoryItem c -> URI) -> Script c -> IO (Story c)
+          => Bool -> URI -> (StoryItem c -> Maybe URI) -> Script c -> IO (Story c)
 runScript verbose rootPath constructPath (Script rs) = foldM f (Story []) rs
   where
     f :: Story c -> ScriptRq c -> IO (Story c)
@@ -591,7 +591,7 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Story []) rs
                         = case pathref of
                             Right (IxRef ix) ->
                               case getStoryItem story ix of
-                                 Right item                     -> Just $ constructPath item
+                                 Right item                     -> constructPath item
                                  Left StoryErrorSerialNotFound  -> error $ "runScript: dangling pathref: " ++ ppShow (pathref, story)
                                  Left (StoryErrorHTTP _)        -> Nothing
                                  Left (StoryErrorSkipped _)     -> Nothing
@@ -616,7 +616,7 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Story []) rs
 
 -- | Clear entire database on server, then run 'runScript'.
 runScript' :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-           => Bool -> URI -> (StoryItem c -> URI) -> Script c -> IO (Story c)
+           => Bool -> URI -> (StoryItem c -> Maybe URI) -> Script c -> IO (Story c)
 runScript' v r c s = clearDB r >> runScript v r c s
 
 
@@ -710,8 +710,8 @@ scriptRqToPy ctx (ScriptRq x m b [] [] hs r) =
     reduceRefsPy :: Bool -> RefCtx -> LBS -> LBS
     reduceRefsPy quoted ctx = reduceRefs quoted ctx f
       where
-        f IxRefRoot = "rootpath"
-        f (IxRef i) = "resp_" <> cs (show i) <> ".json()['path']"
+        f IxRefRoot = Just "rootpath"
+        f (IxRef i) = Just $ "resp_" <> cs (show i) <> ".json()['path']"
 
 
 
