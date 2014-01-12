@@ -174,10 +174,10 @@ mapSerials f (Script rqs) = Script $ map q rqs
                             (Right (IxRef r)) -> Right (IxRef $ f r) }
 
 -- | Parse body from lines of json code.
-readReqBody :: JS.FromJSON c => [LBS] -> Either ST c
+readReqBody :: JS.FromJSON c => [LBS] -> Either SBS c
 readReqBody (LBS.intercalate "\n" -> s) = maybe (Left $ cs s) (Right) $ JS.decode s
 
-emptyReqBody :: Either ST c
+emptyReqBody :: Either SBS c
 emptyReqBody = Left ""
 
 -- | Very basic DSL for writing scripts in a more convenient form
