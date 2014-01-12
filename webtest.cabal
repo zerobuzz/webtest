@@ -22,9 +22,10 @@ library
     Test.QuickCheck.Missing,
     Test.QuickCheck.Store,
     Test.WebApp.Arbitrary,
-    Test.WebApp.ArbitraryOrphans,
     Test.WebApp.HTTP.Property,
+    Test.WebApp.HTTP.Story,
     Test.WebApp.HTTP.Util,
+    Test.WebApp.Orphans,
     Test.WebDriver.Missing
 
   -- other-modules:
@@ -46,6 +47,7 @@ library
     old-time >= 1.1,
     process >= 1.1,
     QuickCheck >= 2.6,
+    regex-easy >= 0.1,
     safe >= 0.3,
     snap-core >= 0.9,
     string-conversions,
@@ -53,6 +55,7 @@ library
     time >= 1.4,
     unordered-containers >= 0.2,
     vector >= 0.10,
+    pretty-show >= 1.6,
     webdriver >= 0.5
 
   -- hs-source-dirs:

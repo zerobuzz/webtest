@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 
-{-# OPTIONS -fwarn-unused-imports -fwarn-incomplete-patterns #-}
+{-# OPTIONS -fwarn-unused-imports #-}  -- -fno-warn-incomplete-patterns
 
 module Test.WebApp.HTTP.Util
 where
@@ -16,6 +16,7 @@ import Network.HTTP
 import Network.Stream
 import Network.URI
 import Prelude hiding (mapM)
+import System.FilePath
 
 import qualified Data.Aeson as JS
 import qualified Data.Aeson.Encode.Pretty as JS
@@ -23,7 +24,29 @@ import qualified Data.ByteString.Lazy as LBS
 
 
 
-injectBody :: JS.ToJSON v => Request LBS -> Either ST v -> Request LBS
+-- | Cheating around 'Custom' constructor to get 'Enum' behavior.
+requestMethods :: [RequestMethod]
+requestMethods = [HEAD, PUT, GET, POST, DELETE, OPTIONS, TRACE, CONNECT]
+
+
+-- | Compile a URI from path string with defaults suitable for testing.
+mkURI :: SBS -> URI
+mkURI = mkURI' "localhost" 8000 "/"
+
+
+-- | Compile a URI from testing parameters.
+mkURI' :: SBS -> Int -> SBS -> SBS -> URI
+mkURI' serverHost serverPort restRoot path = nullURI {
+    uriScheme     = "http:",
+    uriAuthority  = Just (URIAuth "" (cs serverHost) (':': show serverPort)),
+    uriPath       = (cs restRoot) </>
+                    case cs path of
+                      ('/':x) -> x
+                      x       -> x
+  }
+
+
+injectBody :: JS.ToJSON v => Request SBS -> Either SBS v -> Request LBS
 injectBody req bodyE =
     let bodyS :: LBS = either cs JS.encodePretty bodyE in
     replaceHeader HdrContentType "application/json" $
@@ -32,9 +55,16 @@ injectBody req bodyE =
 
 
 -- | Send request to server, collect response, and optionally dump
--- request and response to stdout.
-performReq :: JS.ToJSON w => Bool -> RequestMethod -> URI -> [(ST, ST)] -> Either ST w -> IO (Response LBS)
-performReq verbose method path headers bodyE = do
+-- request and response to stdout.  FIXME: currently, get and post
+-- params are not supported (the first and second assoc map must be
+-- []).
+performReq :: JS.ToJSON w
+           => Bool
+           -> RequestMethod -> URI
+           -> [(SBS, SBS)] -> [(SBS, SBS)] -> [(SBS, SBS)]
+           -> Either SBS w
+           -> IO (Response LBS)
+performReq verbose method path [] [] headers bodyE = do
     let req_0 = injectBody (mkRequest method path) bodyE
         req = foldl (\ req (k, v) -> replaceHeader (HdrCustom (cs k)) (cs v) req) req_0 headers
 
@@ -64,8 +94,9 @@ performReq verbose method path headers bodyE = do
             return response
 
 
-performReqEmptyBody :: Bool -> RequestMethod -> URI -> [(ST, ST)] -> IO (Response LBS)
-performReqEmptyBody verbose method path headers = performReq verbose method path headers (Left "" :: Either ST JS.Value)
+performReqEmptyBody :: Bool -> RequestMethod -> URI -> [(SBS, SBS)] -> [(SBS, SBS)] -> [(SBS, SBS)] -> IO (Response LBS)
+performReqEmptyBody verbose method path getps postps headers =
+    performReq verbose method path getps postps headers (Left "" :: Either SBS JS.Value)
 
 
 processResponse :: JS.FromJSON v => Bool -> Response LBS -> Maybe v
