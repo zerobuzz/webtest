@@ -16,18 +16,22 @@ import Control.Monad hiding (mapM, forM)
 import Data.Function
 import Data.Hashable
 import Data.HashMap.Strict (HashMap (..))
+import Data.Traversable (mapM)
 import Data.Int
 import Data.List
+import Data.Map (Map)
 import Data.Maybe
 import Data.String.Conversions
 import Data.Traversable
 import Prelude hiding (mapM)
 import Test.QuickCheck as Q
 
+import qualified Data.Aeson as JS
 import qualified Data.Attoparsec.Number
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map hiding (Map)
+import qualified Data.Vector as V
 
 
 
@@ -119,5 +123,44 @@ instance Fuzz LBS where
          case LBS.splitAt i s of
             (a, b) -> return $ a <> LBS.tail b
 
+instance Fuzz SBS where
+  fuzz = fmap cs . fuzz . (cs :: SBS -> LBS)
+
 instance Fuzz ST where
   fuzz = fmap cs . fuzz . (cs :: ST -> LBS)
+
+instance Fuzz a => Fuzz (Maybe a) where
+  fuzz Nothing = return Nothing
+  fuzz (Just a) = Just <$> fuzz a
+
+instance (Fuzz a, Fuzz b, Ord a) => Fuzz (Map a b) where
+  fuzz m = oneof [fuzzkey, fuzzvalue, fuzzkey >> fuzzvalue]
+    where
+      fuzzvalue = do
+          (k, v) <- elements $ Map.assocs m
+          v' <- fuzz v
+          return . Map.insert k v' $ m
+
+      fuzzkey = do
+          (k, v) <- elements $ Map.assocs m
+          k' <- fuzz k
+          return . Map.delete k . Map.insert k' v $ m
+
+instance (Fuzz a, Fuzz b, Eq a, Hashable a) => Fuzz (HashMap a b) where
+  fuzz m = oneof [fuzzkey, fuzzvalue, fuzzkey >> fuzzvalue]
+    where
+      fuzzvalue = do
+          (k, v) <- elements $ HashMap.toList m
+          v' <- fuzz v
+          return . HashMap.insert k v' $ m
+
+      fuzzkey = do
+          (k, v) <- elements $ HashMap.toList m
+          k' <- fuzz k
+          return . HashMap.delete k . HashMap.insert k' v $ m
+
+instance (Fuzz a) => Fuzz (V.Vector a) where
+  fuzz = return
+
+instance Fuzz Bool where
+  fuzz b = frequency [(14, pure b), (3, pure $ not b)]

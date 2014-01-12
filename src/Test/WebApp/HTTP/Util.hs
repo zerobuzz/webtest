@@ -46,7 +46,7 @@ mkURI' serverHost serverPort restRoot path = nullURI {
   }
 
 
-injectBody :: JS.ToJSON v => Request SBS -> Either SBS v -> Request LBS
+injectBody :: JS.ToJSON v => Request LBS -> Either SBS v -> Request LBS
 injectBody req bodyE =
     let bodyS :: LBS = either cs JS.encodePretty bodyE in
     replaceHeader HdrContentType "application/json" $

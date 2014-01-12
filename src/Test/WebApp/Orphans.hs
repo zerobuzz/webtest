@@ -28,6 +28,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Test.QuickCheck as Q
 
 import qualified Data.Aeson as JS
+import qualified Data.Attoparsec.Number
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map hiding (Map)
 import qualified Data.Serialize as Cereal
@@ -39,6 +40,10 @@ import Test.WebApp.Arbitrary
 
 -- * Arbitraries
 
+instance Arbitrary Data.Attoparsec.Number.Number where
+  arbitrary = arbitraryNumber 1000
+  shrink = map fromRational . shrink . toRational
+
 instance (Arbitrary b) => Arbitrary (HashMap ST b) where
   arbitrary = HashMap.fromList <$> arbitrary
   shrink = map HashMap.fromList . shrink . HashMap.toList
@@ -46,6 +51,10 @@ instance (Arbitrary b) => Arbitrary (HashMap ST b) where
 instance (Ord a, Arbitrary a, Arbitrary b) => Arbitrary (Map a b) where
   arbitrary = Map.fromList <$> arbitrary
   shrink = map Map.fromList . shrink . Map.toList
+
+instance Arbitrary SBS where
+  arbitrary = cs <$> (arbitrary :: Gen String)
+  shrink = map cs . shrink . (cs :: SBS -> String)
 
 instance Arbitrary ST where
   arbitrary = cs <$> (arbitrary :: Gen String)
@@ -102,6 +111,26 @@ instance Arbitrary JS.Value where
 
 
 -- * Fuzz
+
+-- (Some Fuzz instances call arbitrary, and thus depend on the orphan
+-- instances in this module.  Those that don't are defined in sibling
+-- module Arbitrary.)
+
+instance Fuzz Data.Attoparsec.Number.Number where
+  fuzz b = frequency [(14, pure b), (3, arbitrary)]
+
+{-
+-- | A very simple JS.Value instance as a proof of concept.
+instance Fuzz JS.Value where
+  fuzz js = frequency [(13, f js), (3, arbitrary)]
+    where
+      f (JS.Object m)     = JS.Object <$> fuzz m
+      f (JS.Array v)      = JS.Array <$> fuzz v
+      f (JS.String s)     = JS.String <$> fuzz s
+      f (JS.Number n)     = JS.Number <$> fuzz n
+      f (JS.Bool b)       = JS.Bool <$> fuzz b
+      f JS.Null           = pure JS.Null
+-}
 
 instance Fuzz JS.Value where
   fuzz = tweakType

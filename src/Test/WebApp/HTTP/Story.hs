@@ -67,6 +67,7 @@ import qualified Data.Serialize as Cereal
 import qualified Data.Set as Set hiding (Set)
 
 import Test.QuickCheck.Missing
+import Test.WebApp.Arbitrary
 import Test.WebApp.HTTP.Util
 import Test.WebApp.Orphans ()
 
@@ -277,6 +278,40 @@ prop_arbitraryScriptIxRef (Script rqs) = mkprop $ refs `Set.isSubsetOf` ixs
   where
     refs = Set.fromList . catMaybes . map (srqPathSerial . srqPath) $ rqs
     ixs = Set.fromList . map srqSerial $ rqs
+
+
+-- ** fuzzing scripts
+
+instance (Fuzz c, JS.ToJSON c) => Fuzz (Script c) where
+  fuzz = fuzzLastNRqs 10
+
+fuzzLastNRqs :: (Fuzz c, JS.ToJSON c) => Int -> Script c -> Gen (Script c)
+fuzzLastNRqs n (Script rqs) = do
+      i <- choose (0, max 0 (length rqs - n))
+      case splitAt i rqs of
+        (notToBeFuzzed, toBeFuzzed) -> Script . (notToBeFuzzed ++) <$> mapM fuzz toBeFuzzed
+
+-- | leaves serial number and path ref alone.  breaking the former is
+-- not interesting, because it would only attack consistency of the
+-- test code, not the code under test.  breaking the latter is more
+-- interesting if we have a 'RefCtx' to do it, so we need to do
+-- it when fuzzing a 'Script'.
+--
+-- FIXME: fuzz path refs, get and post params, ...
+instance forall c . (Fuzz c, JS.ToJSON c) => Fuzz (ScriptRq c) where
+  fuzz (ScriptRq i m b gps pps h r) = oneof [tweakMethod, tweakBody, tweakHeaders]
+    where
+      tweakMethod :: Gen (ScriptRq c)
+      tweakMethod = (\ m' -> ScriptRq i m' b gps pps h r) <$> arbitrary
+
+      tweakBody :: Gen (ScriptRq c)
+      tweakBody = (\ b' -> ScriptRq i m (Left b') gps pps h r) <$> either fuzz (fuzz . (cs :: LBS -> SBS) . JS.encode) b
+
+      tweakHeaders :: Gen (ScriptRq c)
+      tweakHeaders = (\ h' -> ScriptRq i m b gps pps h' r) <$> forM h (\ (k, v) ->
+            frequency [ (50, (k,) <$> fuzz v)
+                      , (50, (,v) <$> fuzz k)
+                      ])
 
 
 -- ** Script contexts
