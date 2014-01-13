@@ -21,6 +21,11 @@ import Test.WebDriver
 import qualified Data.Text as ST
 import qualified Data.Array as AR
 
+
+-- FIXME: make use of withCaps from hspec-webdriver package for
+-- session pooling.
+
+
 session :: WDSession
 session = defaultSession
 
