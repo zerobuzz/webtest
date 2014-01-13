@@ -81,6 +81,11 @@ got500 = error "got500: not sure how to implement this..."
 -- > v :: JS.Value <- evalJS [("u", "App/Util")]
 -- >                         [("vector", JSArg [0 :: Int, 1, 2, 3, 4]), ("index", JSArg (2 :: Int))]
 -- >                         ["return [u.someUtilFunction(vector, index)];"]
+--
+-- FIXME: state should contain a compartment specifically for modules
+-- that can be unpacked into the local name space implicitly.  This
+-- way, the user will be able to access the modules in its JS text
+-- directly under the nick that they have been registered under.
 evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd a
 evalJS mods args body = executeJS (map snd args) body'
   where
@@ -121,13 +126,14 @@ evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
 evalRegisterModule nick path = do JS.Null <- evalJS [(nick, path)] [] [jsscopeSet nick nick]; return ()
 
 -- | Trigger angular service factory and store created service into
--- the scope.  (FIXME: not implemented.  there are two ways to do
--- that: (1) learn more about the dependency injection mechanism and
--- mimic it here; calling the factory cascade to get all dependencies
--- straight; or (2) use webdriver-angular package to pluck the
--- initialized service from the running application.  (2) is much
--- easier, but it's not clear how it can be done in an
--- application-indifferent way.)
+-- the scope.
+--
+-- FIXME: not implemented.  there are two ways to do that: (1) learn
+-- more about the dependency injection mechanism and mimic it here;
+-- calling the factory cascade to get all dependencies straight; or
+-- (2) use webdriver-angular package to pluck the initialized service
+-- from the running application.  (2) is much easier, but it's not
+-- clear how it can be done in an application-indifferent way.
 evalRegisterService :: (WebDriver wd) => ST -> ST -> wd ()
 evalRegisterService = error "not implemented"
 
@@ -150,11 +156,11 @@ jsscopeGet k = mconcat [jsscope, ".", k]
 
 -- | JS code: If scope does not exist, create it.  (If it does, leave it untouched.)
 jsscopeInit :: ST
-jsscopeInit = mconcat ["if (!(" <> cs (show jsscope') <> " in document)) { document." <> jsscope' <> " = {}; }"]
+jsscopeInit = mconcat ["if (!(" <> cs (show jsscope') <> " in document)) { " <> jsscope <> " = {}; }"]
 
 -- | JS code: Empty scope; if scope was not initialized, initialize it.
 jsscopeClear :: ST
-jsscopeClear = mconcat ["document." <> jsscope' <> " = {};"]
+jsscopeClear = mconcat [jsscope <> " = {};"]
 
 
 
