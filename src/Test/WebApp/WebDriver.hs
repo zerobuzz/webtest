@@ -119,7 +119,7 @@ evalScopeGet k = evalJS [] [] ["return " <> jsscope <> "." <> k <> ";"]
 
 -- | List alles names defined in scope.
 evalScopeDelete :: (WebDriver wd) => ST -> wd ()
-evalScopeDelete k = evalJS [] [] ["delete " <> jsscope <> "." <> k <> ";"]
+evalScopeDelete k = do JS.Null <- evalJS [] [] ["delete " <> jsscope <> "." <> k <> ";"]; return ()
 
 -- | Open module and add it into the scope.
 evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
