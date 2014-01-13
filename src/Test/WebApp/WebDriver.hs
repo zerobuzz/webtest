@@ -32,19 +32,25 @@ import Data.List as List
 import Data.Map (Map)
 import Data.Maybe
 import Data.Monoid
+import Data.String.Conversions
 import Prelude hiding ((++))
 import System.Log.Logger
 import Test.QuickCheck as QC
 import Test.QuickCheck.Property as QC
 import Test.WebDriver
+import Test.WebDriver.Classes
 import Text.Printf
 import Text.Show.Pretty
 
+import qualified Data.Aeson as JS
 import qualified Data.Map as Map
+import qualified Data.Text as ST
 
 import Test.QuickCheck.Missing
 
 
+
+-- * the little things
 
 sleepIO :: Double -> IO ()
 sleepIO seconds = Control.Concurrent.threadDelay (round (seconds * 1e6))
@@ -64,6 +70,95 @@ got404 = error "got404: not sure how to implement this..."
 got500 :: WD Bool
 got500 = error "got500: not sure how to implement this..."
 
+
+
+-- * eval api
+
+-- | Frontend for 'executeJS'.  First argument contains a list of
+-- mods, second a list of args.  Both have nicks assigned to them that
+-- can be used from inside javascript.  Example:
+--
+-- > v :: JS.Value <- evalJS [("u", "App/Util")]
+-- >                         [("vector", JSArg [0 :: Int, 1, 2, 3, 4]), ("index", JSArg (2 :: Int))]
+-- >                         ["return [u.someUtilFunction(vector, index)];"]
+evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd a
+evalJS mods args body = executeJS (map snd args) body'
+  where
+    body' = ST.intercalate "\n" $ argsCode ++ modCode ++ body
+
+    argsCode :: [ST]
+    argsCode = zipWith f args [0..]
+      where f (nick, _) i = "var " <> nick <> " = arguments[" <> cs (show i) <> "];"
+
+    modCode :: [ST]
+    modCode = map f mods
+      where f (nick, path) = "var " <> nick <> " = require(" <> cs (show path) <> ");"
+
+
+-- | Init scope.  If scope existed before, leave it intact.
+evalScopeInit :: (WebDriver wd) => wd ()
+evalScopeInit = do JS.Null <- evalJS [] [] [jsscopeInit]; return ()
+
+-- | Clear scope.  If scope is initialized, empty it.  If it is not,
+-- initialize it.
+evalScopeClear :: (WebDriver wd) => wd ()
+evalScopeClear = do JS.Null <- evalJS [] [] [jsscopeClear]; return ()
+
+-- | List alles names defined in scope.
+evalScopeShow :: (WebDriver wd) => wd [ST]
+evalScopeShow = evalJS [] [] ["return Object.keys(" <> jsscope <> ");"]
+
+-- | List alles names defined in scope.
+evalScopeGet :: (WebDriver wd, JS.FromJSON a) => ST -> wd a
+evalScopeGet k = evalJS [] [] ["return jsscope" <> "." <> k <> ";"]
+
+-- | List alles names defined in scope.
+evalScopeDelete :: (WebDriver wd) => ST -> wd ()
+evalScopeDelete k = evalJS [] [] ["delete jsscope" <> "." <> k <> ";"]
+
+-- | Open module and add it into the scope.
+evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
+evalRegisterModule nick path = do JS.Null <- evalJS [(nick, path)] [] [jsscopeSet nick nick]; return ()
+
+-- | Trigger angular service factory and store created service into
+-- the scope.  (FIXME: not implemented.  there are two ways to do
+-- that: (1) learn more about the dependency injection mechanism and
+-- mimic it here; calling the factory cascade to get all dependencies
+-- straight; or (2) use webdriver-angular package to pluck the
+-- initialized service from the running application.  (2) is much
+-- easier, but it's not clear how it can be done in an
+-- application-indifferent way.)
+evalRegisterService :: (WebDriver wd) => ST -> ST -> wd ()
+evalRegisterService = error "not implemented"
+
+
+-- | JS code: Name of a javascript object that we can use to store names that
+-- we want to reuse between calls to 'evalJS'.
+jsscope :: ST
+jsscope = "document." <> jsscope'
+
+jsscope' :: ST
+jsscope' = "webDriverTestScope"
+
+-- | JS code: Update name in global javascript scope.
+jsscopeSet :: ST -> ST -> ST
+jsscopeSet k v = mconcat [jsscope, ".", k, " = ", v, ";"]
+
+-- | JS code: Get name from global javascript scope.
+jsscopeGet :: ST -> ST
+jsscopeGet k = mconcat [jsscope, ".", k]
+
+-- | JS code: If scope does not exist, create it.  (If it does, leave it untouched.)
+jsscopeInit :: ST
+jsscopeInit = mconcat ["if (!(" <> cs (show jsscope') <> " in document)) { document." <> jsscope' <> " = {}; }"]
+
+-- | JS code: Empty scope; if scope was not initialized, initialize it.
+jsscopeClear :: ST
+jsscopeClear = mconcat ["document." <> jsscope' <> " = {};"]
+
+
+
+-- * state machines
 
 -- | Test State with quickcheck property and transition actions.
 --
