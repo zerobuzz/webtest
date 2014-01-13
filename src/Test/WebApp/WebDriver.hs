@@ -110,11 +110,11 @@ evalScopeShow = evalJS [] [] ["return Object.keys(" <> jsscope <> ");"]
 
 -- | List alles names defined in scope.
 evalScopeGet :: (WebDriver wd, JS.FromJSON a) => ST -> wd a
-evalScopeGet k = evalJS [] [] ["return jsscope" <> "." <> k <> ";"]
+evalScopeGet k = evalJS [] [] ["return " <> jsscope <> "." <> k <> ";"]
 
 -- | List alles names defined in scope.
 evalScopeDelete :: (WebDriver wd) => ST -> wd ()
-evalScopeDelete k = evalJS [] [] ["delete jsscope" <> "." <> k <> ";"]
+evalScopeDelete k = evalJS [] [] ["delete " <> jsscope <> "." <> k <> ";"]
 
 -- | Open module and add it into the scope.
 evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
