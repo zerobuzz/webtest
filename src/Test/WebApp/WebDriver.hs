@@ -87,7 +87,16 @@ got500 = error "got500: not sure how to implement this..."
 -- way, the user will be able to access the modules in its JS text
 -- directly under the nick that they have been registered under.
 evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd a
-evalJS mods args body = executeJS (map snd args) body'
+evalJS = evalJS_ executeJS
+
+-- | Asyncrhonous variant of 'evalJS' that calls 'asyncJS' instead of
+-- 'executeJS'.
+evalAsyncJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd (Maybe a)
+evalAsyncJS = evalJS_ asyncJS
+
+-- | Shared code of 'evalJS' and 'evalAsyncJS'.
+evalJS_ :: ([JSArg] -> ST -> a) -> [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> a
+evalJS_ callff mods args body = callff (map snd args) body'
   where
     body' = ST.intercalate "\n" $ argsCode ++ modCode ++ body
 
