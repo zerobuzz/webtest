@@ -130,16 +130,15 @@ evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
 evalRegisterModule nick path = do JS.Null <- evalJS [(nick, path)] [] [jsscopeSet nick nick]; return ()
 
 -- | Trigger angular service factory and store created service into
--- the scope.
---
--- FIXME: not implemented.  there are two ways to do that: (1) learn
--- more about the dependency injection mechanism and mimic it here;
--- calling the factory cascade to get all dependencies straight; or
--- (2) use webdriver-angular package to pluck the initialized service
--- from the running application.  (2) is much easier, but it's not
--- clear how it can be done in an application-indifferent way.
-evalRegisterService :: (WebDriver wd) => ST -> ST -> wd ()
-evalRegisterService = error "not implemented"
+-- the scope (under its own name).  Accepts a list of angular modules
+-- required for constructing the injector ("ng" is implicit).
+evalRegisterService :: (WebDriver wd) => [ST] -> ST -> wd ()
+evalRegisterService angularModules serviceName = do
+    JS.Null <- evalJS [] []
+        [ "var i = angular.injector(" <> (cs . show $ "ng":angularModules) <> ");"
+        , jsscopeSet serviceName $ "i.get(" <> (cs $ show serviceName) <> ")"
+        ]
+    return ()
 
 
 -- | JS code: Name of a javascript object that we can use to store names that
