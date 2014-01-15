@@ -181,6 +181,45 @@ jsscopeClear = mconcat [jsscope <> " = {};"]
 
 
 
+-- * inspect browser state
+
+-- | Overload console.log method and push all logged data to
+-- 'jsscope'.  See also 'getBrowserConsole'.
+--
+-- FIXME: it would be nice to have an implicit exception handler that
+-- returns @Either browserLog JS.Value@, at least for sync calls.  for
+-- async calls i'm not sure it can be done properly, but we could
+-- catch the webdriver timeout exception and fetch the log then.  also
+-- fetch screenshots in error structure together with @[[JS.Value]]@.
+--
+-- FIXME: is there a way to turn on the js debugger via selenium?
+-- (workaround: insert sleep in your test, then turn it on manually.)
+--
+-- Also of possible interest:
+--
+-- > screenshot >>= liftIO . LBS.writeFile "/tmp/x.png"
+-- > getLogTypes >>= mapM getLogs >>= liftIO . mapM (mapM (putStrLn . show))
+-- > serverStatus >>= liftIO . print
+hijackBrowserConsole :: WebDriver wd => wd ()
+hijackBrowserConsole = do
+    JS.Null <- evalJS [] []
+        [ jsscopeSet "__console__" "[]"
+        , "var log_ = console.log;"
+        , "console.log = function(...args) {"
+        , "   " <> jsscopeGet "__console__" <> ".push(args);"
+        , "   log_(args);"
+        , "};"
+        ]
+    return ()
+
+
+-- | Download copy of browser logs.  This only works from the moment
+-- you call 'hijackBrowserConsole'.
+getBrowserConsole :: WD [[JS.Value]]
+getBrowserConsole = evalJS [] [] ["return " <> jsscopeGet "__console__"]
+
+
+
 -- * state machines
 
 -- | Test State with quickcheck property and transition actions.
