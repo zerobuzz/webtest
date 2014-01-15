@@ -101,8 +101,13 @@ evalJS_ callff callback mods args body = callff (map snd args) body'
     body' = ST.intercalate "\n" $ argsCode ++ modCode ++ body
 
     argsCode :: [ST]
-    argsCode = zipWith f (args ++ if callback then [("callback", undefined)] else []) [0..]
-      where f (nick, _) i = "var " <> nick <> " = arguments[" <> cs (show i) <> "];"
+    argsCode = zipWith f (map fst args ++ argscb) [0..]
+      where
+        argscb :: [ST]
+        argscb = if callback then ["callback"] else []
+
+        f :: ST -> Int -> ST
+        f nick i = "var " <> nick <> " = arguments[" <> cs (show i) <> "];"
 
     modCode :: [ST]
     modCode = map f mods
