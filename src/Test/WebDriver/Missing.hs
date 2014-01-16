@@ -140,3 +140,6 @@ runTestSuite = mapM_ (putStrLn . cs . f) testSuite
                     if st' == st then "[ok]    " <> st'
                                  else "***     is:        " <> cs (show st') <> "\n" <>
                                       "        should be: " <> cs (show st)
+
+-- FIXME: still missing: regex matching on attribute values; attribute
+-- search without deciding on a tag first.

@@ -52,6 +52,18 @@ import Test.QuickCheck.Missing
 
 -- * the little things
 
+-- | Frontend for 'runWD'.  All exceptions are caught; the exception
+-- handler fetches the browser console output and writes both
+-- exception and console output to stdout, then crashes.  Before
+-- calling this, call 'hijackBrowserConsole' (in a call to 'runWD').
+runWD' :: WDSession -> WD a -> IO a
+runWD' session action = do
+    result <- catch (Right <$> runWD session action)
+                    (\ (e :: SomeException) -> runWD session getBrowserConsole >>= return . Left . (e,))
+    case result of
+        Right a -> return a
+        (Left (e, console)) -> putStrLn (ppShow e) >> putStrLn (ppShow console) >> error "runWD' failed!"
+
 sleepIO :: Double -> IO ()
 sleepIO seconds = Control.Concurrent.threadDelay (round (seconds * 1e6))
 
@@ -184,7 +196,10 @@ jsscopeClear = mconcat [jsscope <> " = {};"]
 -- * inspect browser state
 
 -- | Overload console.log method and push all logged data to
--- 'jsscope'.  See also 'getBrowserConsole'.
+-- 'jsscope'.  See also 'getBrowserConsole'.  You should try to not
+-- call this more than once because that wouldn't be very elegant, but
+-- 'hijackBrowserConsole' handles multiple calls in one session
+-- correctly.
 --
 -- FIXME: it would be nice to have an implicit exception handler that
 -- returns @Either browserLog JS.Value@, at least for sync calls.  for
@@ -203,12 +218,14 @@ jsscopeClear = mconcat [jsscope <> " = {};"]
 hijackBrowserConsole :: WebDriver wd => wd ()
 hijackBrowserConsole = do
     JS.Null <- evalJS [] []
-        [ jsscopeSet "__console__" "[]"
-        , "var log_ = console.log;"
-        , "console.log = function(...args) {"
-        , "   " <> jsscopeGet "__console__" <> ".push(args);"
-        , "   log_(args);"
-        , "};"
+        [ "if (!" <> jsscopeGet "__console__" <> ") {"
+        , "    " <> jsscopeSet "__console__" "[]"
+        , "    var log_ = console.log;"
+        , "    console.log = function(...args) {"
+        , "        " <> jsscopeGet "__console__" <> ".push(args);"
+        , "        log_(args);"
+        , "    };"
+        , "}"
         ]
     return ()
 
@@ -217,6 +234,18 @@ hijackBrowserConsole = do
 -- you call 'hijackBrowserConsole'.
 getBrowserConsole :: WD [[JS.Value]]
 getBrowserConsole = evalJS [] [] ["return " <> jsscopeGet "__console__"]
+
+
+-- | Dump browser logs to stdout (in 'WD').  Only works from the
+-- moment you call 'hijackBrowserConsole'.
+printBrowserConsole :: WD ()
+printBrowserConsole = getBrowserConsole >>= liftIO . putStrLn . ppShow
+
+
+-- | Dump browser logs to stdout (in 'IO').  Only works from the
+-- moment you call 'hijackBrowserConsole'.
+printBrowserConsoleIO :: WDSession -> IO ()
+printBrowserConsoleIO session = runWD session getBrowserConsole >>= putStrLn . ppShow
 
 
 
