@@ -56,13 +56,16 @@ import Test.QuickCheck.Missing
 -- handler fetches the browser console output and writes both
 -- exception and console output to stdout, then crashes.  Before
 -- calling this, call 'hijackBrowserConsole' (in a call to 'runWD').
+--
+-- (MISSING: take a screenshot, store it to a temp file, and output
+-- the file name together with the error log and the exception.)
 runWD' :: WDSession -> WD a -> IO a
 runWD' session action = do
     result <- catch (Right <$> runWD session action)
                     (\ (e :: SomeException) -> runWD session getBrowserConsole >>= return . Left . (e,))
     case result of
         Right a -> return a
-        (Left (e, console)) -> putStrLn (ppShow e) >> putStrLn (ppShow console) >> error "runWD' failed!"
+        (Left (e, console)) -> putStrLn (ppShow console) >> putStrLn (ppShow e) >> error "runWD' failed!"
 
 sleepIO :: Double -> IO ()
 sleepIO seconds = Control.Concurrent.threadDelay (round (seconds * 1e6))
@@ -202,14 +205,9 @@ jsscope = mconcat ["(() => { if (typeof ", location, " === 'undefined') { ", loc
 -- 'hijackBrowserConsole' handles multiple calls in one session
 -- correctly.
 --
--- FIXME: it would be nice to have an implicit exception handler that
--- returns @Either browserLog JS.Value@, at least for sync calls.  for
--- async calls i'm not sure it can be done properly, but we could
--- catch the webdriver timeout exception and fetch the log then.  also
--- fetch screenshots in error structure together with @[[JS.Value]]@.
---
--- FIXME: is there a way to turn on the js debugger via selenium?
--- (workaround: insert sleep in your test, then turn it on manually.)
+-- (Is there a way to turn on the js debugger via selenium?  the
+-- workaround would be to insert sleep in your test, then turn it on
+-- manually.)
 --
 -- Also of possible interest:
 --
