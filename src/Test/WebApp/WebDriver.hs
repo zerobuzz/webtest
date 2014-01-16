@@ -101,6 +101,10 @@ got500 = error "got500: not sure how to implement this..."
 evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd a
 evalJS = evalJS_ executeJS False
 
+-- | call 'evalJS' and ignore the return value.
+evalJS' :: (WebDriver wd) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd ()
+evalJS' mods args code = do (x :: JS.Value) <- evalJS mods args code; return ()
+
 -- | Asyncrhonous variant of 'evalJS' that calls 'asyncJS' instead of
 -- 'executeJS'.
 evalAsyncJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd (Maybe a)
