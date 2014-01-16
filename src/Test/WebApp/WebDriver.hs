@@ -126,31 +126,6 @@ evalJS_ callff callback mods args body = callff (map snd args) body'
       where f (nick, path) = "var " <> nick <> " = require(" <> cs (show path) <> ");"
 
 
--- | Init scope.  If scope existed before, leave it intact.
-evalScopeInit :: (WebDriver wd) => wd ()
-evalScopeInit = do JS.Null <- evalJS [] [] [jsscopeInit]; return ()
-
--- | Clear scope.  If scope is initialized, empty it.  If it is not,
--- initialize it.
-evalScopeClear :: (WebDriver wd) => wd ()
-evalScopeClear = do JS.Null <- evalJS [] [] [jsscopeClear]; return ()
-
--- | List alles names defined in scope.
-evalScopeShow :: (WebDriver wd) => wd [ST]
-evalScopeShow = evalJS [] [] ["return Object.keys(" <> jsscope <> ");"]
-
--- | List alles names defined in scope.
-evalScopeGet :: (WebDriver wd, JS.FromJSON a) => ST -> wd a
-evalScopeGet k = evalJS [] [] ["return " <> jsscopeGet k <> ";"]
-
--- | List alles names defined in scope.
-evalScopeSet :: (WebDriver wd) => ST -> ST -> wd ()
-evalScopeSet k expr = do JS.Null <- evalJS [] [] [jsscopeSet k expr]; return ()
-
--- | List alles names defined in scope.
-evalScopeDelete :: (WebDriver wd) => ST -> wd ()
-evalScopeDelete k = do JS.Null <- evalJS [] [] ["delete " <> jsscopeGet k <> ";"]; return ()
-
 -- | Open module and add it into the scope.
 evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
 evalRegisterModule nick path = do JS.Null <- evalJS [(nick, path)] [] [jsscopeSet nick nick]; return ()
@@ -167,29 +142,51 @@ evalRegisterService angularModules serviceName = do
     return ()
 
 
--- | JS code: Name of a javascript object that we can use to store names that
--- we want to reuse between calls to 'evalJS'.
-jsscope :: ST
-jsscope = "document." <> jsscope'
+-- | List alles names defined in scope.
+evalScopeShow :: (WebDriver wd) => wd [ST]
+evalScopeShow = evalJS [] [] ["return Object.keys(" <> jsscope <> ");"]
 
-jsscope' :: ST
-jsscope' = "webDriverTestScope"
+-- | List alles names defined in scope.
+evalScopeGet :: (WebDriver wd, JS.FromJSON a) => ST -> wd a
+evalScopeGet k = evalJS [] [] ["return " <> jsscopeGet k <> ";"]
 
--- | JS code: Update name in global javascript scope.
-jsscopeSet :: ST -> ST -> ST
-jsscopeSet k v = mconcat [jsscope, ".", k, " = ", v, ";"]
+-- | List alles names defined in scope.
+evalScopeSet :: (WebDriver wd) => ST -> ST -> wd ()
+evalScopeSet k expr = do JS.Null <- evalJS [] [] [jsscopeSet k expr]; return ()
+
+-- | List alles names defined in scope.
+evalScopeDelete :: (WebDriver wd) => ST -> wd ()
+evalScopeDelete k = do JS.Null <- evalJS [] [] [jsscopeDelete k]; return ()
+
+-- | Clear scope.  If scope is initialized, empty it.  If it is not,
+-- initialize it.
+evalScopeClear :: (WebDriver wd) => wd ()
+evalScopeClear = do JS.Null <- evalJS [] [] [jsscopeClear]; return ()
+
 
 -- | JS code: Get name from global javascript scope.
 jsscopeGet :: ST -> ST
 jsscopeGet k = mconcat [jsscope, ".", k]
 
--- | JS code: If scope does not exist, create it.  (If it does, leave it untouched.)
-jsscopeInit :: ST
-jsscopeInit = mconcat ["if (!(" <> cs (show jsscope') <> " in document)) { " <> jsscope <> " = {}; }"]
+-- | JS code: Update name in global javascript scope.
+jsscopeSet :: ST -> ST -> ST
+jsscopeSet k v = mconcat [jsscopeGet k, " = ", v, ";"]
+
+-- | JS code: Update name in global javascript scope.
+jsscopeDelete :: ST -> ST
+jsscopeDelete k = mconcat ["delete ", jsscopeGet k, ";"]
 
 -- | JS code: Empty scope; if scope was not initialized, initialize it.
 jsscopeClear :: ST
-jsscopeClear = mconcat [jsscope <> " = {};"]
+jsscopeClear = mconcat ["delete ", jsscope]
+
+
+-- | JS code: Name of a javascript object that we can (we hope) use to
+-- store names that we want to reuse between calls to 'evalJS'.
+jsscope :: ST
+jsscope = mconcat ["(() => { if (typeof ", location, " === 'undefined') { ", location, " = {}; }; return ", location, "; })()"]
+  where
+    location = "window.__webdriver_jsscope__"
 
 
 
