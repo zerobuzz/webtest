@@ -93,31 +93,25 @@ got500 = error "got500: not sure how to implement this..."
 -- mods, second a list of args.  Both have nicks assigned to them that
 -- can be used from inside javascript.  Example:
 --
--- > v :: JS.Value <- evalJS [("u", "App/Util")]
--- >                         [("vector", JSArg [0 :: Int, 1, 2, 3, 4]), ("index", JSArg (2 :: Int))]
--- >                         ["return [u.someUtilFunction(vector, index)];"]
---
--- FIXME: state should contain a compartment specifically for modules
--- that can be unpacked into the local name space implicitly.  This
--- way, the user will be able to access the modules in its JS text
--- directly under the nick that they have been registered under.
-evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd a
+-- > v :: JS.Value <- evalJS [("vector", JSArg [0 :: Int, 1, 2, 3, 4]), ("index", JSArg (2 :: Int))]
+-- >                         ["return [JSON.stringify(vector, index)];"]
+evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, JSArg)] -> [ST] -> wd a
 evalJS = evalJS_ executeJS False
 
 -- | call 'evalJS' and ignore the return value.
-evalJS' :: (WebDriver wd) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd ()
-evalJS' mods args code = do (x :: JS.Value) <- evalJS mods args code; return ()
+evalJS' :: (WebDriver wd) => [(ST, JSArg)] -> [ST] -> wd ()
+evalJS' args code = do (x :: JS.Value) <- evalJS args code; return ()
 
 -- | Asyncrhonous variant of 'evalJS' that calls 'asyncJS' instead of
 -- 'executeJS'.
-evalAsyncJS :: (WebDriver wd, JS.FromJSON a) => [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> wd (Maybe a)
+evalAsyncJS :: (WebDriver wd, JS.FromJSON a) => [(ST, JSArg)] -> [ST] -> wd (Maybe a)
 evalAsyncJS = evalJS_ asyncJS True
 
 -- | Shared code of 'evalJS' and 'evalAsyncJS'.
-evalJS_ :: ([JSArg] -> ST -> a) -> Bool -> [(ST, ST)] -> [(ST, JSArg)] -> [ST] -> a
-evalJS_ callff callback mods args body = callff (map snd args) body'
+evalJS_ :: ([JSArg] -> ST -> a) -> Bool -> [(ST, JSArg)] -> [ST] -> a
+evalJS_ callff callback args body = callff (map snd args) body'
   where
-    body' = ST.intercalate "\n" $ argsCode ++ modCode ++ body
+    body' = ST.intercalate "\n" $ argsCode ++ body
 
     argsCode :: [ST]
     argsCode = zipWith f (map fst args ++ argscb) [0..]
@@ -128,47 +122,43 @@ evalJS_ callff callback mods args body = callff (map snd args) body'
         f :: ST -> Int -> ST
         f nick i = "var " <> nick <> " = arguments[" <> cs (show i) <> "];"
 
-    modCode :: [ST]
-    modCode = map f mods
-      where f (nick, path) = "var " <> nick <> " = require(" <> cs (show path) <> ");"
-
 
 -- | Open module and add it into the scope.
 evalRegisterModule :: (WebDriver wd) => ST -> ST -> wd ()
-evalRegisterModule nick path = do JS.Null <- evalJS [(nick, path)] [] [jsscopeSet nick nick]; return ()
+evalRegisterModule nick path = evalJS' [("path", JSArg path)] [jsscopeSet nick ("require(path)")]
+
 
 -- | Trigger angular service factory and store created service into
 -- the scope (under its own name).  Accepts a list of angular modules
 -- required for constructing the injector ("ng" is implicit).
-evalRegisterService :: (WebDriver wd) => [ST] -> ST -> wd ()
-evalRegisterService angularModules serviceName = do
-    JS.Null <- evalJS [] []
-        [ "var i = angular.injector(" <> (cs . show $ "ng":angularModules) <> ");"
-        , jsscopeSet serviceName $ "i.get(" <> (cs $ show serviceName) <> ")"
+evalRegisterService :: (WebDriver wd) => ST -> [ST] -> ST -> wd ()
+evalRegisterService serviceNick angularModules serviceName =
+    evalJS' [("mods", JSArg ("ng" : angularModules)), ("service", JSArg serviceName)]
+        [ "var i = angular.injector(mods);"
+        , jsscopeSet serviceNick $ "i.get(service)"
         ]
-    return ()
 
 
 -- | List alles names defined in scope.
 evalScopeShow :: (WebDriver wd) => wd [ST]
-evalScopeShow = evalJS [] [] ["return Object.keys(" <> jsscope <> ");"]
+evalScopeShow = evalJS [] ["return Object.keys(" <> jsscope <> ");"]
 
--- | List alles names defined in scope.
+-- | Get name from global javascript scope into local namespace.
 evalScopeGet :: (WebDriver wd, JS.FromJSON a) => ST -> wd a
-evalScopeGet k = evalJS [] [] ["return " <> jsscopeGet k <> ";"]
+evalScopeGet k = evalJS [] ["return " <> k <> ";"]
 
--- | List alles names defined in scope.
+-- | Store expressoin in javascript scope.
 evalScopeSet :: (WebDriver wd) => ST -> ST -> wd ()
-evalScopeSet k expr = do JS.Null <- evalJS [] [] [jsscopeSet k expr]; return ()
+evalScopeSet k expr = evalJS' [] [jsscopeSet k expr]
 
--- | List alles names defined in scope.
+-- | Delete name from javascript scope.
 evalScopeDelete :: (WebDriver wd) => ST -> wd ()
-evalScopeDelete k = do JS.Null <- evalJS [] [] [jsscopeDelete k]; return ()
+evalScopeDelete k = evalJS' [] [jsscopeDelete k]
 
 -- | Clear scope.  If scope is initialized, empty it.  If it is not,
 -- initialize it.
 evalScopeClear :: (WebDriver wd) => wd ()
-evalScopeClear = do JS.Null <- evalJS [] [] [jsscopeClear]; return ()
+evalScopeClear = evalJS' [] [jsscopeClear]
 
 
 -- | JS code: Get name from global javascript scope.
@@ -179,7 +169,7 @@ jsscopeGet k = mconcat [jsscope, ".", k]
 jsscopeSet :: ST -> ST -> ST
 jsscopeSet k v = mconcat [jsscopeGet k, " = ", v, ";"]
 
--- | JS code: Update name in global javascript scope.
+-- | JS code: Delete name in global javascript scope.
 jsscopeDelete :: ST -> ST
 jsscopeDelete k = mconcat ["delete ", jsscopeGet k, ";"]
 
@@ -215,9 +205,9 @@ jsscope = mconcat ["(() => { if (typeof ", location, " === 'undefined') { ", loc
 -- > getLogTypes >>= mapM getLogs >>= liftIO . mapM (mapM (putStrLn . show))
 -- > serverStatus >>= liftIO . print
 hijackBrowserConsole :: WebDriver wd => wd ()
-hijackBrowserConsole = do
-    JS.Null <- evalJS [] []
-        [ "if (!" <> jsscopeGet "__console__" <> ") {"
+hijackBrowserConsole =
+    evalJS' []
+        [ "if (typeof " <> jsscopeGet "__console__" <> " === 'undefined') {"
         , "    " <> jsscopeSet "__console__" "[]"
         , "    var log_ = console.log;"
         , "    console.log = function(...args) {"
@@ -226,13 +216,12 @@ hijackBrowserConsole = do
         , "    };"
         , "}"
         ]
-    return ()
 
 
 -- | Download copy of browser logs.  This only works from the moment
 -- you call 'hijackBrowserConsole'.
 getBrowserConsole :: WD [[JS.Value]]
-getBrowserConsole = evalJS [] [] ["return " <> jsscopeGet "__console__"]
+getBrowserConsole = evalJS [] ["return " <> jsscopeGet "__console__"]
 
 
 -- | Dump browser logs to stdout (in 'WD').  Only works from the
