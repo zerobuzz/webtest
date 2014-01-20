@@ -17,6 +17,8 @@ Instead of using a headless browser, on debian you can simply run this
 > nohup Xvfb :100 -ac > /dev/null 2> /dev/null &
 > DISPLAY=:100 pybot unit
 
+TODO: checkout packages free, sunroof!
+
 -}
 module Test.WebApp.WebDriver
 where
@@ -95,6 +97,10 @@ got500 = error "got500: not sure how to implement this..."
 --
 -- > v :: JS.Value <- evalJS [("vector", JSArg [0 :: Int, 1, 2, 3, 4]), ("index", JSArg (2 :: Int))]
 -- >                         ["return [JSON.stringify(vector, index)];"]
+--
+-- FIXME: it would be neat if argument could also be a javascript
+-- expression that will be evaluated once, and assigned to a nick.
+-- Could be done with @Either String JSArg@ instead of @JSArg@.
 evalJS :: (WebDriver wd, JS.FromJSON a) => [(ST, JSArg)] -> [ST] -> wd a
 evalJS = evalJS_ executeJS False
 
@@ -106,6 +112,18 @@ evalJS' args code = do (x :: JS.Value) <- evalJS args code; return ()
 -- 'executeJS'.
 evalAsyncJS :: (WebDriver wd, JS.FromJSON a) => [(ST, JSArg)] -> [ST] -> wd (Maybe a)
 evalAsyncJS = evalJS_ asyncJS True
+
+-- | call 'evalAsyncJS' and ignore the callback's return value.
+-- returns True if callback was called, and False if a timeout was
+-- hit.  (this is interesting if you want to know that the callback
+-- has been called, but not what it has been called with.  if you
+-- don't care about the latter, calling 'evalJS'' may be better
+-- because it returns immediately.)
+--
+-- FIXME: i think timeouts trigger exceptions, not 'Nothing' return
+-- values.  test this / check github ticket.
+evalAsyncJS' :: (WebDriver wd) => [(ST, JSArg)] -> [ST] -> wd Bool
+evalAsyncJS' args code = do (x :: Maybe JS.Value) <- evalAsyncJS args code; return (isJust x)
 
 -- | Shared code of 'evalJS' and 'evalAsyncJS'.
 evalJS_ :: ([JSArg] -> ST -> a) -> Bool -> [(ST, JSArg)] -> [ST] -> a
@@ -184,6 +202,66 @@ jsscope :: ST
 jsscope = mconcat ["(() => { if (typeof ", location, " === 'undefined') { ", location, " = {}; }; return ", location, "; })()"]
   where
     location = "window.__webdriver_jsscope__"
+
+
+
+-- * more webdriver helpers.
+
+-- | Send a js call that runs a piece of synchronous test code every
+-- 'tickms' miliseconds.  If the test code returns true for
+-- 'stableticks' consecutive ticks, 'waitForCondition' returns @True@;
+-- otherwise (if it returns false or throws an exception), it returns
+-- @False@.  (See also 'setScriptTimeout'.)
+waitForCondition :: WebDriver wd => Int -> Int -> [(ST, JSArg)] -> [ST] -> wd Bool
+waitForCondition tickms stableticks args code | stableticks >= 1 = evalAsyncJS' args' code'
+  where
+    verbose = False  -- (just for debugging)
+
+    args' = [("__tickms__", JSArg tickms), ("__stableticks__", JSArg stableticks)] ++ args
+    code' =
+        "function __check_condition__() {" :
+        ["    console.log('__check_condition__');" | verbose ] ++
+        "" :
+        "    try {" :
+        map ("        " <>) code ++
+        "    } catch (e) {" :
+        ["        console.log('__check_condition__.catch', e);" | verbose ] ++
+        "        return false;" :
+        "    }" :
+        "}" :
+        "" :
+        "function __loop_wait__() {" :
+        ["    console.log('__loop_wait__');" | verbose ] ++
+        "" :
+        "    if (__check_condition__()) {" :
+        "        setTimeout(() => __loop_stable__(__stableticks__), __tickms__);" :
+        "    } else {" :
+        "        setTimeout(__loop_wait__, __tickms__);" :
+        "    }" :
+        "}" :
+        "" :
+        "function __loop_stable__(ticks) {" :
+        ["    console.log('__loop_stable__', ticks);" | verbose ] ++
+        "" :
+        "    if (ticks <= 1) {" :
+        "        callback();" :
+        "    } else {" :
+        "        if (__check_condition__()) {" :
+        "            setTimeout(() => __loop_stable__(ticks - 1), __tickms__);" :
+        "        } else {" :
+        "            setTimeout(__loop_wait__, __tickms__);" :
+        "        }" :
+        "    }" :
+        "}" :
+        "" :
+        "    __loop_wait__();" :
+        []
+
+waitForConditionNgScope :: WebDriver wd => Int -> Int -> (ST, Element) -> [(ST, JSArg)] -> [ST] -> wd Bool
+waitForConditionNgScope tickms stableticks (scopeNick, element) args code = waitForCondition tickms stableticks args' code'
+  where
+    args' = ("element", JSArg element) : args
+    code' = ("var " <> scopeNick <> " = angular.element(element).scope();") : code
 
 
 
