@@ -73,7 +73,7 @@ import Test.WebApp.Orphans ()
 
 
 
--- * script requests
+-- * Script requests
 
 -- | One request in a 'Script'.  For convenience, the body may be
 -- stored in a typed way, and will be serialized using 'ToJSON', but
@@ -129,7 +129,7 @@ srqPathSerial _ = Nothing
 
 
 
--- * scripts
+-- * Scripts
 
 -- | A 'Script' is a list of requests.  Scripts are run head-to-last.
 -- The 'ScriptRq' type has a serial number.  Serial numbers are not
@@ -215,7 +215,7 @@ sanitizeScriptRqContent (Right c) = Right c
 sanitizeScriptRqContent (Left s) = maybe (Left s) (Right) . JS.decode $ cs s
 
 
--- ** arbitrary scripts
+-- ** Arbitrary scripts
 
 -- | Generate arbitrary 'Script's.  This is more complicated than
 -- 'listOf', since the path refs are context sensitive.  Takes a list
@@ -280,7 +280,7 @@ prop_arbitraryScriptIxRef (Script rqs) = mkprop $ refs `Set.isSubsetOf` ixs
     ixs = Set.fromList . map srqSerial $ rqs
 
 
--- ** fuzzing scripts
+-- ** Fuzzing scripts
 
 instance (Fuzz c, JS.ToJSON c) => Fuzz (Script c) where
   fuzz = fuzzLastNRqs 10
@@ -478,7 +478,7 @@ data StoryError c =
 
 
 
--- * reference reduction
+-- * Reference reduction
 
 -- | Headers and body of a 'ScriptRq' may contain (sub-)strings of the
 -- form @___SCRIPT_REF___<i>@, or @___SCRIPT_REF___@, which index into
@@ -628,7 +628,7 @@ clearDB r = performReqEmptyBody False GET r' [] [] [] >> return ()
 
 
 
--- * compile 'Script' object to python
+-- * Compile to python
 
 scriptToPyFile :: (JS.ToJSON c, Show c) => Script c -> FilePath -> IO ()
 scriptToPyFile script filepath = SBS.writeFile filepath . SBS.intercalate "\n" . scriptToPySBS $ script
@@ -715,7 +715,7 @@ scriptRqToPy ctx (ScriptRq x m b [] [] hs r) =
 
 
 
--- * quickcheck unit test store helpers
+-- * Quickcheck Store helpers
 
 -- | List all unit test cases in the DB, together with their filenames.
 readStore :: forall a c . (Show a, Typeable a, Cereal.Serialize a)
@@ -744,7 +744,7 @@ compileTestCase _ (filename, testData) = do
 
 
 
--- * more helpers
+-- * More helpers
 
 getScriptRqContent :: ScriptRq c -> Maybe c
 getScriptRqContent (ScriptRq _ _ (Right body) _ _ _ _) = Just body

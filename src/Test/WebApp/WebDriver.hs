@@ -52,7 +52,7 @@ import Test.QuickCheck.Missing
 
 
 
--- * the little things
+-- * Little things
 
 -- | Frontend for 'runWD'.  All exceptions are caught; the exception
 -- handler fetches the browser console output and writes both
@@ -89,7 +89,7 @@ got500 = error "got500: not sure how to implement this..."
 
 
 
--- * eval api
+-- * The eval* api
 
 -- | Frontend for 'executeJS'.  First argument contains a list of
 -- mods, second a list of args.  Both have nicks assigned to them that
@@ -205,7 +205,7 @@ jsscope = mconcat ["(() => { if (typeof ", location, " === 'undefined') { ", loc
 
 
 
--- * more webdriver helpers.
+-- * Waiting for things
 
 -- | Send a js call that runs a piece of synchronous test code every
 -- 'tickms' miliseconds.  If the test code returns true for
@@ -265,7 +265,7 @@ waitForConditionNgScope tickms stableticks (scopeNick, element) args code = wait
 
 
 
--- * inspect browser state
+-- * Browser state inspection
 
 -- | Overload console.log method and push all logged data to
 -- 'jsscope'.  See also 'getBrowserConsole'.  You should try to not
@@ -315,7 +315,7 @@ printBrowserConsoleIO session = runWD session getBrowserConsole >>= putStrLn . p
 
 
 
--- * state machines
+-- * State machines
 
 -- | Test State with quickcheck property and transition actions.
 --
