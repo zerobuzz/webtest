@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude    #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE ViewPatterns  #-}
 
 {-# OPTIONS -fwarn-unused-imports #-}  -- -fno-warn-incomplete-patterns
 
@@ -99,30 +100,45 @@ performReqEmptyBody verbose method path getps postps headers =
     performReq verbose method path getps postps headers (Left "" :: Either SBS JS.Value)
 
 
-processResponse :: JS.FromJSON v => Bool -> Response LBS -> Maybe v
-processResponse verbose_ response =
-    case rspCode response of
-          (2, _, _) -> JS.decode . cs . rspBody $ response
-          code      -> Nothing
+-- | Tries to process response, returns Nothing on fail
+processResponse :: JS.FromJSON v => Response LBS -> Maybe v
+processResponse = bindJSONResponse . force2xxResponse
 
 
 -- | Process response, force response code 2xx and remove 'Maybe' wrapper.
-forceResponse :: JS.FromJSON v => Bool -> Response LBS -> v
-forceResponse verbose_ response =
-    maybe (error "giving up") id $ processResponse verbose_ response
+forceResponse :: JS.FromJSON v => Response LBS -> v
+forceResponse = fromJust . processResponse
 
 
 -- | Process response, force response code 2xx and drop result entirely.
-assertResponse :: Bool -> Response LBS -> ()
-assertResponse verbose_ response =
-    maybe (error "giving up") (const ()) $
-      (processResponse verbose_ response :: Maybe JS.Value)
+assertResponse :: Response LBS -> ()
+assertResponse = const () . force2xxResponse
 
 
--- | Process response, force response code /= 2xx and drop result
+-- | Process response, force response code 4xx and drop result
 -- entirely.  ('processResponse' above could also return an either
 -- error that we can process here.)
-assertError :: Bool -> Response LBS -> ()
-assertError verbose_ response =
-    maybe () (const $ error "giving up") $
-      (processResponse verbose_ response :: Maybe JS.Value)
+assertError :: Response LBS -> ()
+assertError response = maybe () (const $ error "giving up") (maybeXResponse 4 response)
+
+
+-- | Force response code 2xx.
+force2xxResponse :: Response LBS -> Response LBS
+force2xxResponse response @ (rspCode -> (2, _, _)) = response
+
+
+-- | Force response code _X_xx.
+maybeXResponse :: Int -> Response LBS -> Maybe (Response LBS)
+maybeXResponse x response@(rspCode -> (n, _, _))
+    | n == x = Just response
+    | otherwise = Nothing
+
+
+-- | Take a response and return it as a JSON value if possible
+bindJSONResponse :: JS.FromJSON v => Response LBS -> Maybe v
+bindJSONResponse = JS.decode . cs . rspBody
+
+
+-- | Force JSON response and return it
+forceJSONResponse :: JS.FromJSON v => Response LBS -> v
+forceJSONResponse = fromJust . bindJSONResponse
