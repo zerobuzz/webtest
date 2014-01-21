@@ -315,7 +315,7 @@ printBrowserConsoleIO session = runWD session getBrowserConsole >>= putStrLn . p
 
 
 
--- * State machines (this will be obsoleted eventually by module Test.WebApp.StateMachines
+-- * State machines (this will be obsoleted eventually by module Test.WebApp.StateMachines)
 
 -- | Test State with quickcheck property and transition actions.
 --
