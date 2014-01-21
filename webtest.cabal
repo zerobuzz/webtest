@@ -26,6 +26,7 @@ library
     Test.WebApp.HTTP.Story,
     Test.WebApp.HTTP.Util,
     Test.WebApp.Orphans,
+    Test.WebApp.StateMachines,
     Test.WebApp.WebDriver,
     Test.WebDriver.Missing
 
