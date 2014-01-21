@@ -41,6 +41,22 @@ import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (.
 
 -- ** State
 
+-- | FIXME: not sure this is the right way to do it.  if sTransitions
+-- is [StateId], there is no way of making the set of successor states
+-- depend on the current state.  can't change path if there is an
+-- error, for instance.  if it is payload -> [StateId], there is no
+-- way of doing traces statically - we can only make them up as we run
+-- them.  there will also be no way of compiling them to python.
+--
+-- we could make it Either [StateId] [StateId], and pick Right in case
+-- sTest returns truesy, and Left if it returns falsy.  so we would
+-- feed one bit of the payload to the transition function.  (is that
+-- better than an unknown large number of bits?  not really...  also,
+-- no point: once the first test is falsy, execution will stop!)
+--
+-- for now, go with static transition maps, because otherwise it's
+-- just a turing machine an we can't do anything interesting to it but
+-- run it.
 data State payload content =
     StateHTTP
       { sStart        :: Bool
@@ -72,32 +88,6 @@ stateWD :: (payload -> WDSession -> WD (Maybe JS.Value))
           -> [StateId]
           -> State payload content
 stateWD enter update trans = StateWD True True enter update (const $ mkprop True) trans
-
-
--- if sTransitions is [StateId], there is no way of making the set of
--- successor states depend on the current state.  can't change path if
--- there is an error, for instance.  if it is payload -> [StateId],
--- there is no way of doing traces statically - we can only make them
--- up as we run them.  there will also be no way of compiling them to
--- python.
---
--- we could make it Either [StateId] [StateId], and pick Right in case
--- sTest returns truesy, and Left if it returns falsy.  so we would
--- feed one bit of the payload to the transition function.  (is that
--- better than an unknown large number of bits?  not really...  also,
--- no point: once the first test is falsy, execution will stop!)
---
--- for now, go with static transition maps, because otherwise it's
--- just a turing machine an we can't do anything interesting to it but
--- run it.
-
-
-
--- FIXME: using the above type, write arbitraryValidScript for a3 and
--- for some other interesting application.  (what is there?  reddit?)
-
-
-
 
 
 instance Show (State payload content) where
@@ -218,7 +208,7 @@ propTrace' session trace@(Trace machine xs) =
 -}
 
 
--- ** graph algorithms
+-- ** Graph algorithms
 
 -- | Keep the last state.  Find shortcuts in the earlier states that
 -- maintain the validity of the trace (e.g., replace @2->3->1@ by
