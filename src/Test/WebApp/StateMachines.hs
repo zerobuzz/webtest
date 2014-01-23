@@ -159,10 +159,17 @@ shrinkTrace = shortcuts
 -- useful to randomize it (and for that end wrap it into the 'Gen'
 -- monad.)
 arbitraryScriptFromTrace :: forall content . Trace content -> Gen (Script content)
-arbitraryScriptFromTrace (Trace machine stateIds) = foldM f (Script []) states
+arbitraryScriptFromTrace (Trace machine stateIds) = foldM generate (Script []) states
   where
-    f :: Script content -> State content -> Gen (Script content)
-    f script@(Script rqs) state@(StateHTTP {..}) = Script . (rqs ++) . (:[]) <$> stateHTTPRequest script
+    generate :: Script content -> State content -> Gen (Script content)
+    generate script@(Script rqs) state = Script . (rqs ++) . (:[]) . number <$> rq
+      where
+        rq :: Gen (ScriptRq content)
+        rq = case state of
+                StateHTTP {..} -> stateHTTPRequest script
+
+        number :: ScriptRq content -> ScriptRq content
+        number rq = rq { srqSerial = length rqs }
 
     states :: [State content]
     states = catMaybes' $ map (`Map.lookup` (fromMachine machine)) stateIds
