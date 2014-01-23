@@ -16,7 +16,7 @@ import Control.Monad hiding (mapM, forM)
 import Data.Function
 import Data.Hashable
 import Data.HashMap.Strict (HashMap (..))
-import Data.Traversable (mapM)
+-- import Data.Traversable (mapM)
 import Data.Int
 import Data.List
 import Data.Map (Map)
@@ -26,7 +26,7 @@ import Data.Traversable
 import Prelude hiding (mapM)
 import Test.QuickCheck as Q
 
-import qualified Data.Aeson as JS
+-- import qualified Data.Aeson as JS
 import qualified Data.Attoparsec.Number
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.HashMap.Strict as HashMap
