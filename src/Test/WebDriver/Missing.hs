@@ -23,6 +23,12 @@ import qualified Data.Text as ST
 -- | Find all elements on the page matching the given sequence of
 -- selectors.  (FIXME: think about the [] case again; also in
 -- 'findElemsFrom''.)
+--
+-- FIXME: This function may return the same element under different
+-- IDs.  In order to eliminate duplicates, use '<==>' (which
+-- unfortunately requires further HTTP requests).  This function (and
+-- its variants) should have a flag that makes them 'nub' on '<==>'
+-- implicitly.
 findElems' :: WebDriver wd => [Selector] -> wd [Element]
 findElems'          []      = findElems (ByXPath "//html")
 findElems'          (x:xs)  = findElems x           >>= fmap concat . mapM (`findElemsFrom'` xs)
