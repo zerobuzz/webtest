@@ -77,7 +77,7 @@ data State content =
 
 instance Show (State content) where
     show (StateHTTP {..}) =
-        printf "(StateHTTP %s %s)" (show stateStart) (show stateTerminal) (show stateTransitions)
+        printf "(StateHTTP %s %s %s)" (show stateStart) (show stateTerminal) (show stateTransitions)
 
 
 -- | FIXME: this should be an application-specific enum type that is
