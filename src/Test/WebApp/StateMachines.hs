@@ -4,6 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables                      #-}
 {-# LANGUAGE TupleSections                            #-}
 {-# LANGUAGE TypeFamilies                             #-}
+{-# LANGUAGE DeriveGeneric                            #-}
+{-# LANGUAGE DeriveDataTypeable                       #-}
 {-# LANGUAGE ViewPatterns                             #-}
 {-# LANGUAGE RecordWildCards                          #-}
 {-# LANGUAGE NamedFieldPuns                           #-}
@@ -22,10 +24,13 @@ import Control.Arrow
 import Control.Monad
 import Control.Monad.Trans
 import Data.Function
+import Data.Typeable
+import GHC.Generics
 import Data.List as List
 import Data.Map (Map)
 import Data.Maybe
 import Data.String.Conversions
+import Network.URI
 import Prelude hiding ((++))
 import Test.QuickCheck as QC
 import Test.WebDriver
@@ -36,7 +41,7 @@ import qualified Data.Aeson as JS
 import qualified Data.Map as Map
 import qualified Network.HTTP as NH
 
-import Test.WebApp.HTTP.Story
+import Test.WebApp.HTTP.Story hiding (Script (..), Story (..))
 import Test.WebDriver.Missing
 import Test.QuickCheck.Missing
 import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (..),
@@ -48,91 +53,80 @@ import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (.
 
 -- * State machines
 
--- ** State
-
--- | FIXME: not sure this is the right way to do it.  if sTransitions
--- is [StateId], there is no way of making the set of successor states
--- depend on the current state.  can't change path if there is an
--- error, for instance.  if it is payload -> [StateId], there is no
--- way of doing traces statically - we can only make them up as we run
--- them.  there will also be no way of compiling them to python.
---
--- we could make it Either [StateId] [StateId], and pick Right in case
--- sTest returns truesy, and Left if it returns falsy.  so we would
--- feed one bit of the payload to the transition function.  (is that
--- better than an unknown large number of bits?  not really...  also,
--- no point: once the first test is falsy, execution will stop!)
---
--- for now, go with static transition maps, because otherwise it's
--- just a turing machine an we can't do anything interesting to it but
--- run it.
-data State content =
-    StateHTTP
-      { stateStart        :: Bool
-      , stateTerminal     :: Bool
-      , stateTransitions  :: [StateId]
-      , stateHTTPRequest  :: Script content -> Gen (ScriptRq content)
-      , stateTest         :: Story content -> QC.Property
-      }
-
-instance Show (State content) where
-    show (StateHTTP {..}) =
-        printf "(StateHTTP %s %s %s)" (show stateStart) (show stateTerminal) (show stateTransitions)
-
-
--- | FIXME: this should be an application-specific enum type that is
--- passed to 'State', 'Machine', ... as a parameter.
-type StateId = Int
-
-
-stateHTTP :: [StateId]
-          -> (Script content -> Gen (ScriptRq content))
-          -> State content
-stateHTTP trans step = StateHTTP True True trans step (const $ mkprop True)
-
-
--- | A machine is a mapping from 'StateId's to 'State's.  All other
--- information is contained in the states.
-data Machine content = Machine { fromMachine :: Map StateId (State content) }
+data SM sid content = SM { fromSM :: Map sid (State sid content) }
   deriving (Show)
 
+data State sid content =
+      State
+        { stateId           :: sid
+        , stateStart        :: Bool
+        , stateTerminal     :: Bool
+        , stateTransitions  :: [(Script sid content -> Gen (ScriptItem content), [sid])]
+        }
+  deriving (Typeable)
 
--- | Collect all 'State's with 'StateId' of a machine, and create it.
--- Crashes if any 'StateId' occurs more than once.
-mkMachine :: [(StateId, State content)] -> Machine content
+instance (Show sid) => Show (State sid content) where show s = "(State " <> show (stateId s) <> ")"
+
+data Script sid content =
+      Script
+        { scriptSM    :: SM sid content
+        , scriptItems :: [(sid, ScriptItem content)]
+        }
+  deriving (Typeable)
+
+data Trace sid content =
+      Trace
+        { traceSM     :: SM sid content
+        , traceItems  :: [(sid, TraceItem content)]
+        }
+  deriving (Typeable)
+
+data ScriptItem content =
+      ScriptItemHTTP
+        { siSerial       :: Ix
+        , siMethod       :: NH.RequestMethod
+        , siBody         :: Either SBS content
+        , siGetParams    :: [(SBS, SBS)]
+        , siPostParams   :: [(SBS, SBS)]
+        , siHeaders      :: [(SBS, SBS)]
+        , siPath         :: Either URI IxRef
+        }
+  deriving (Show, Eq, Typeable, Generic)
+
+data TraceItem content =
+      TraceItemHTTP
+        { tiReq :: ScriptRq content
+        , tiRsp :: Maybe (NH.Response LBS)
+        }
+  deriving (Show, Typeable, Generic)
+
+
+mkMachine :: (Eq sid, Enum sid, Bounded sid, Ord sid, Show sid)
+          => [State sid content] -> SM sid content
 mkMachine states = if null dupeIds
-                       then Machine $ Map.fromList states
+                       then SM $ Map.fromList (zip ids states)
                        else error $ "mkMachine: duplicate StateIds: " ++ show dupeIds
   where
-    ids = map fst states
+    ids = map stateId states
     dupeIds = ids \\ nub ids
 
 
--- | 'Machine' is an abstract specification of all sessions, or of
--- what could possibly ever happen.  The thing we want to implement
--- 'arbitrary' and 'shrink' on is one particular session at a time,
--- with all state transition events chronological order.  We call this
--- a 'Trace'.
---
--- FIXME: this should be called 'ProtoScript', and 'Script' should
--- move to this module and allow for both http and webdriver items.
-data Trace content = Trace (Machine content) [StateId]
-  deriving (Show)
 
+{-
 
-arbitraryTrace :: forall content . Machine content -> Gen (Trace content)
-arbitraryTrace machine = mkTrace <$> (mkStart >>= sized . f)
+arbitraryScript :: forall sid content . SM sid content -> Gen (Script sid content)
+arbitraryScript machine = mkScript <$> (mkStart >>= sized . f)
   where
-    mkStart :: Gen StateId
-    mkStart = case Map.keys . Map.filter stateStart . fromMachine $ machine of
+    mkStart :: Gen sid
+    mkStart = case Map.keys . Map.filter stateStart . fromSM $ machine of
                 keys@(_:_) -> elements keys
                 [] -> error $ "arbitraryTrace: machine without start state: " ++ ppShow machine
 
-    mkTrace :: Maybe [StateId] -> Trace content
-    mkTrace (Just ids) = Trace machine ids
-    mkTrace Nothing = error $ "arbitraryTrace: machine without terminator state: " ++ ppShow machine
+    mkScript :: Maybe [(sid, ScriptItem content)] -> Script sid content
+    mkScript (Just ids) = Script machine ids
+    mkScript Nothing = error $ "arbitraryTrace: machine without terminator state: " ++ ppShow machine
 
-    f :: StateId -> Int -> Gen (Maybe [StateId])
+    f :: sid -> Int -> Gen (Maybe [(sid, ScriptItem content)])
     f last i = case (i, successors machine last) of
         (0, _)           -> terminate
         (_, [])          -> terminate
@@ -177,6 +171,9 @@ arbitraryScriptFromTrace (Trace machine stateIds) = foldM generate (Script []) s
     catMaybes' [] = []
     catMaybes' (Just x:xs) = x : catMaybes' xs
 
+-}
+
+
 
 -- ** Graph algorithms
 
@@ -188,35 +185,37 @@ arbitraryScriptFromTrace (Trace machine stateIds) = foldM generate (Script []) s
 --
 -- FIXME: for now, this only cuts out proper cycles, not detours like
 -- the example above.
-shortcuts :: Trace content -> [Trace content]
-shortcuts (Trace machine xs) = map (Trace machine . reverse) . shortcuts' machine . reverse $ xs
+shortcuts :: Script sid content -> [Script sid content]
+shortcuts (Script machine xs) = error "" -- map (Script machine . reverse) . shortcuts' machine . reverse $ xs
 
 
 -- | Plumbing for 'shortcuts'.
-shortcuts' :: Machine content -> [StateId] -> [[StateId]]
-shortcuts' machine [] = []
-shortcuts' machine [only] = []
-shortcuts' machine (last:before@(second:before')) = (last:) <$> (direct before' ++ recursive)
+shortcuts' :: forall sid . (Eq sid) => [sid] -> [[sid]]
+shortcuts' [] = []
+shortcuts' [only] = []
+shortcuts' (last:before@(second:before')) = (last:) <$> (direct before' ++ recursive)
   where
-    direct :: [StateId] -> [[StateId]]
+    direct :: [sid] -> [[sid]]
     direct [] = []
     direct candidate@(x:xs) = (if x == second then (candidate:) else id) $ direct xs
 
-    recursive :: [[StateId]]
-    recursive = shortcuts' machine before
+    recursive :: [[sid]]
+    recursive = shortcuts' before
 
 
 -- | Produce all possible direct successors (connected via a single
 -- transition) of a state.
-successors :: Machine content -> StateId -> [StateId]
-successors machine id = maybe [] stateTransitions $ Map.lookup id $ fromMachine machine
+successors :: forall sid content . (Ord sid)
+           => SM sid content -> sid -> [sid]
+successors machine sid = maybe [] (nub . join . map snd . stateTransitions) $ Map.lookup sid $ fromSM machine
 
 -- | Produce all descentants of a state, ie. both direct successors
 -- and their successors, recursively.  Each descentant is annotated
 -- with the length of the path that it was reached on in the search
 -- (not necessarily the length of the shortest path to it!).  Output
 -- list is infinite iff there are cycles in the machine graph.
-descendants :: Machine content -> StateId -> [(Int, StateId)]
+descendants :: forall sid content . (Ord sid)
+            => SM sid content -> sid -> [(Int, sid)]
 descendants machine id = map (1,) direct ++ concat (map recursive direct)
   where
     direct = successors machine id
@@ -224,14 +223,14 @@ descendants machine id = map (1,) direct ++ concat (map recursive direct)
 
 -- | Like 'successors', but up the transition graph.  (In the current
 -- implementation, this is a bit more expensive than down.)
-predecessors :: Machine content -> StateId -> [StateId]
-predecessors machine id = map fst . filter hit . Map.toList . fromMachine $ machine
+predecessors :: forall sid content . (Eq sid) => SM sid content -> sid -> [sid]
+predecessors machine id = map fst . filter hit . Map.toList . fromSM $ machine
   where
-    hit (_, state) = id `elem` stateTransitions state
+    hit (_, state) = id `elem` (nub . join . map snd . stateTransitions) state
 
 -- | Like 'descendants' to 'successors', but calls 'predecessors'
 -- instead.
-ancestors :: Machine content -> StateId -> [(Int, StateId)]
+ancestors :: forall sid content . (Eq sid) => SM sid content -> sid -> [(Int, sid)]
 ancestors machine id = map (1,) direct ++ concat (map recursive direct)
   where
     direct = predecessors machine id
@@ -240,21 +239,21 @@ ancestors machine id = map (1,) direct ++ concat (map recursive direct)
 -- | FIXME: 'descendants' and 'shortestTerminatingTrace' should both
 -- make use of more general graph algorithms.  Check king paper and
 -- ghc libs once more!
-shortestTerminatingTrace :: Machine content -> StateId -> Maybe [StateId]
+shortestTerminatingTrace :: forall sid content . (Eq sid, Ord sid) => SM sid content -> sid -> Maybe [sid]
 shortestTerminatingTrace machine start = listToMaybe $ step [] start
   where
-    step :: [StateId] -> StateId -> [[StateId]]
+    step :: [sid] -> sid -> [[sid]]
     step visited now
         | now `elem` visited  = []        -- (give up when hitting a cycle.)
         | terminal now        = [[now]]   -- (end when hitting a terminal state.)
-        | True                = let recurse :: [[StateId]]
+        | True                = let recurse :: [[sid]]
                                     recurse = concatMap (step (now:visited)) (successors machine now)
                                 in sieve ((now:) <$> recurse)
 
-    terminal :: StateId -> Bool
-    terminal sid = case Map.lookup sid (fromMachine machine) of Just s -> stateTerminal s
+    terminal :: sid -> Bool
+    terminal sid = case Map.lookup sid (fromSM machine) of Just s -> stateTerminal s
 
-    sieve :: [[StateId]] -> [[StateId]]
+    sieve :: [[sid]] -> [[sid]]
     sieve = map snd
           . sortBy (flip compare `on` fst)
           . map (\ ids -> (length ids, ids))
