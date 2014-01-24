@@ -100,15 +100,23 @@ data XPathQualify =
     XPathIx Int
   | XPathLast
   | XPathAttrEq ST ST
+  | XPathAttrMatches ST ST
+  | XPathAttrContains ST ST
   | XPathTextEq ST
   deriving (Eq, Show, Ord)
 
 -- | This function mimics the (missing) 'ByXPath'' constructor of the
 -- 'Selector' type.
+byXPath :: XPath -> Selector
+byXPath (XPath ors) = byXPath' ors
+
+-- | Variant of 'byXPath'.
 byXPath' :: [[XPathJoint]] -> Selector
 byXPath' = ByXPath . compileXPath . XPath
 
--- | Compile a structured 'XPath' expression to a string.
+-- | Compile a structured 'XPath' expression to a string.  (If
+-- 'XPathAttrMatches' is not working for you, you may be using XPath
+-- <2.0?)
 compileXPath :: XPath -> ST
 compileXPath (XPath xpathjoints) = dsj xpathjoints
   where
@@ -131,10 +139,12 @@ compileXPath (XPath xpathjoints) = dsj xpathjoints
     xpj' badpath = error $ "compileXPath: " ++ show badpath
 
     xpq :: XPathQualify -> ST
-    xpq (XPathIx i)        = cs (show i)
-    xpq XPathLast          = "last()"
-    xpq (XPathAttrEq k v)  = "@" <> k <> "=" <> cs (show v)
-    xpq (XPathTextEq v)    = "text()=" <> cs (show v)
+    xpq (XPathIx i)             = cs (show i)
+    xpq XPathLast               = "last()"
+    xpq (XPathAttrEq k v)       = "@" <> k <> "=" <> cs (show v)
+    xpq (XPathAttrContains k v) = "contains(@" <> k <> ", " <> cs (show v) <> ")"
+    xpq (XPathAttrMatches k v)  = "matches(@" <> k <> ", " <> cs (show v) <> ")"
+    xpq (XPathTextEq v)         = "text()=" <> cs (show v)
 
 
 -- ** some ad-hoc xpath compiler tests
