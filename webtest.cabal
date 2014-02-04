@@ -45,6 +45,10 @@ library
     hashable >= 1.2,
     hslogger >= 1.2,
     HTTP,
+    language-dot,
+    lifted-base >= 0.2,
+    MonadCatchIO-transformers >= 0.3 && < 0.4,
+    monad-control >= 0.3,
     mtl >= 2.1,
     network >= 2.4,
     old-locale >= 1.0,
@@ -60,7 +64,8 @@ library
     transformers >= 0.3,
     unordered-containers >= 0.2,
     vector >= 0.10,
-    webdriver >= 0.5,
+    webdriver >= 0.5 && < 0.5.3,
+    transformers-base >= 0.4,
 
     -- not available from hackage (yet):
     regex-easy >= 0.1
