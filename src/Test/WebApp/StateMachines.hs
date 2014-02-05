@@ -237,6 +237,8 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
     mkNode s = D.NodeStatement (mkNodeId s) . map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
                  ("label",      cs . show . stateId $ s
                   ) :
+                 ("fontsize",   cs $ show 10
+                  ) :
                  ("shape",      "box"
                   ) :
                  ("color",      case stateTerminal s of
@@ -259,7 +261,9 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
                    D.ENodeId D.DirectedEdge (mkNodeId thisState) :
                    []
         attributes = map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
-                 ("label",      cs $ show (siSerial i, siMethod i, siHTTPPath i)
+                 ("label",      cs $ show (siSerial i) <> "\\l" <> show (siMethod i) <> "\\l" <> show (siHTTPPath i)
+                  ) :
+                 ("fontsize",   cs $ show 9
                   ) :
                  []
 
