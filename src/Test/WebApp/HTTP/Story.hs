@@ -439,7 +439,7 @@ dropDanglingReferences'3 (Script rqs) = Script $ f mempty rqs
 -- | A 'Story' is an interpreted 'Script'.  Story items (or events, or
 -- actions) consist of a 'ScriptRq' and an HTTP response.  The are
 -- arranged in a list in the same order as in the 'Script', i.e. last
--- item was played last.  See 'runScript' and 'runScript''.
+-- item was played last.  See 'runScript'.
 newtype Story c = Story { fromStory :: [StoryItem c] }
 
 type StoryItem c = (ScriptRq c, Maybe (Response LBS))
@@ -622,19 +622,6 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Story []) rs
                 return $ story <> Story [(rq, Just response)]
               Nothing -> do
                 return $ story <> Story [(rq, Nothing)]
-
-
--- | Clear entire database on server, then run 'runScript'.
-runScript' :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
-           => Bool -> URI -> (StoryItem c -> Maybe URI) -> Script c -> IO (Story c)
-runScript' v r c s = clearDB r >> runScript v r c s
-
-
--- | Clear entire database on server.
-clearDB :: URI -> IO ()
-clearDB r = performReqEmptyBody False GET r' [] [] [] >> return ()
-  where
-    r' = r { uriPath = uriPath r <> "/admin/reset-db" }
 
 
 
