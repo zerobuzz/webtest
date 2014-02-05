@@ -143,10 +143,10 @@ mkMachine states = if null dupeIds
     dupeIds = ids \\ nub ids
 
 
--- | arbitrary scripts from a given state machine.  @FIXME: call mkItem with (size+1) so scripts are never empty!  (does that work?)@
+-- | arbitrary scripts from a given state machine.
 scriptFromSM :: forall sid content . (Ord sid, Show sid, Show content)
              => SM sid content -> Gen (Script sid content)
-scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem size (Script []) state
+scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1) (Script []) state
   where
     mkStart :: Gen (State sid content)
     mkStart = case Map.elems . Map.filter stateStart . fromSM $ machine of
@@ -174,7 +174,10 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem size (Scr
             scripts :: [Script sid content]
                 <- join <$>
                    mapM (\ (thisItem, thisSid) -> do
-                            let thisItem' = thisItem { siFromState = Just lastState, siThisState = Just thisState }
+                            let thisItem' = thisItem { siSerial     = length (scriptItems script)
+                                                     , siFromState  = Just lastState
+                                                     , siThisState  = Just thisState
+                                                     }
                                 Just thisState = Map.lookup thisSid $ fromSM machine
 
                             vectorOf w2 (mkItem (size - 1) (script <> Script [thisItem']) thisState)
