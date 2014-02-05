@@ -215,9 +215,9 @@ transitionGraph :: forall sid content . (Eq sid, Show sid) => String -> Script s
 transitionGraph = error "wef"
 
 
--- | FIXME: show sids; graphically indicate terminal and start flag
--- for every node; show transition http (or wd) request.
-scriptToDot :: forall sid content . (Eq sid, Ord sid, Show sid) => String -> Script sid content -> D.Graph
+-- | FIXME: show transition http (or wd) request.
+scriptToDot :: forall sid content . (Eq sid, Ord sid, Show sid, Show content)
+            => String -> Script sid content -> D.Graph
 scriptToDot name script@(Script []) = error "transitionGraph: empty Script: not implemented."
 scriptToDot name script@(Script (_:_)) = D.Graph D.StrictGraph D.DirectedGraph (Just (D.NameId name)) statements
   where
@@ -230,8 +230,20 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.StrictGraph D.DirectedGraph (
     statements = (mkNode <$> nodes) ++ (mkEdge <$> scriptItems script)
 
     mkNode :: State sid content -> D.Statement
-    mkNode s = D.NodeStatement (mkNodeId s)
-                 [D.AttributeSetValue (D.StringId "label") (D.StringId . cs . show . stateId $ s)]
+    mkNode s = D.NodeStatement (mkNodeId s) . map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
+                 ("label",      cs . show . stateId $ s
+                  ) :
+                 ("shape",      "box"
+                  ) :
+                 ("color",      case stateTerminal s of
+                                  False -> "black"
+                                  True  -> "red"
+                  ) :
+                 ("fillcolor",  case stateStart s of
+                                  True  -> "green"
+                                  False -> "white"
+                  ) :
+                 []
 
     mkNodeId :: State sid content -> D.NodeId
     mkNodeId s = D.NodeId (D.NameId (show (stateId s))) Nothing
@@ -242,8 +254,10 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.StrictGraph D.DirectedGraph (
         entities = D.ENodeId D.NoEdge (mkNodeId fromState) :
                    D.ENodeId D.DirectedEdge (mkNodeId thisState) :
                    []
-        attributes = []
-
+        attributes = map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
+                 ("label",      cs $ show (siSerial i, siMethod i, siHTTPPath i)
+                  ) :
+                 []
 
 
 -- ** Graph algorithms
