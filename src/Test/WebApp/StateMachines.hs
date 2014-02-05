@@ -196,14 +196,16 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
         shortestScript :: [Script sid content] -> Script sid content
         shortestScript = f Nothing
             where
-                f _         (x:_)  | length (scriptItems x) < 1                       = error "arbitraryScript: internal error."
-                f _         (x:_)  | length (scriptItems x) == 1                      = x
-                f (Just x') (x:xs) | length (scriptItems x) < length (scriptItems x') = f (Just x) xs
-                f (Just x') (x:xs)                                                    = f (Just x') xs
-                f Nothing   [x]                                                       = x
-                f (Just x') []                                                        = x'
-
+                f _         (x:_) | length (scriptItems x) == 1  = x  -- no need to keep looking!
+                f _         (x:_) | length (scriptItems x) < 1   = error "arbitraryScript: internal error."
+                f Nothing   (x:xs)                               = f (Just x)                  xs
+                f (Just x') (x:xs)                               = f (Just (pickShorter x x')) xs
+                f (Just x') []                                   = x'
                 f acc rest = error $ "arbitraryScript.shortestScript: unmatched pattern: " ++ show (acc, rest)
+
+                pickShorter x x' = if length (scriptItems x) < length (scriptItems x')
+                                     then x
+                                     else x'
 
 
 prop_scriptFromSM_serials :: (Ord sid, Show sid, Show property) => SM sid property -> QC.Property
