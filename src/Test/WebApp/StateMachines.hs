@@ -206,8 +206,8 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
                 f acc rest = error $ "arbitraryScript.shortestScript: unmatched pattern: " ++ show (acc, rest)
 
 
-prop_scriptFromSM_serials :: QC.Property
-prop_scriptFromSM_serials = forAll (scriptFromSM example2) $ mkprop . and . zipWith (==) [0..] . map siSerial . scriptItems
+prop_scriptFromSM_serials :: (Ord sid, Show sid, Show property) => SM sid property -> QC.Property
+prop_scriptFromSM_serials sm = forAll (scriptFromSM sm) $ and . zipWith (==) [0..] . map siSerial . scriptItems
 
 
 -- | default shrink for Scripts
