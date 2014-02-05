@@ -241,15 +241,15 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
                   ) :
                  ("fontsize",   cs $ show 10
                   ) :
-                 ("shape",      "box"
+                 ("style",      "filled"
                   ) :
-                 ("color",      case stateTerminal s of
-                                  False -> "black"
-                                  True  -> "red"
+                 ("shape",      case stateTerminal s of
+                                  False -> "box"
+                                  True  -> "egg"
                   ) :
                  ("fillcolor",  case stateStart s of
                                   True  -> "green"
-                                  False -> "white"
+                                  False -> "gray"
                   ) :
                  []
 
