@@ -581,6 +581,16 @@ reduceRefsDynBody root construct story (Right c) =
 -- responses with serial.  Requests on paths missing due to earlier
 -- errors are skipped (response is 'Nothing').  See 'Script' for
 -- properties of serial numbers.
+--
+-- (possible optimization: make runScript take a property of stories
+-- that is evaluated after every response on the already-constructed
+-- story prefix.  write a function that generates properties from such
+-- a property of traces and a machine to run it on.  these properties
+-- would be a more direct approach to constructing counter-examples
+-- than implementing properties on stories and calling runScript and
+-- quickCheck manually.  FIXME: reconsider this idea once the
+-- implemention of the ideas by Hughes/Claessen are implemented and
+-- understood.)
 runScript :: forall c . (Show c, JS.FromJSON c, JS.ToJSON c)
           => Bool -> URI -> (StoryItem c -> Maybe URI) -> Script c -> IO (Story c)
 runScript verbose rootPath constructPath (Script rs) = foldM f (Story []) rs

@@ -58,7 +58,7 @@ import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (.
                                      shortcuts, shortcuts', shortestTerminatingTrace, arbitraryTrace)
                                -- (all the above will eventually be merged into here.)
 
-
+import qualified Test.WebApp.HTTP.Story as Story
 
 {-
 import Test.WebDriver.Capabilities
@@ -268,6 +268,34 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
                  ("fontsize",   cs $ show 9
                   ) :
                  []
+
+
+-- ** A very strange hack
+
+-- | There are currently two competing 'Script' types: one in this
+-- module and a legacy one in module "Test.WebApp.HTTP.Story".  In
+-- order to use the functionailty implemented for the latter, use this
+-- conversion function.
+scriptNewToOld :: forall sid content . Script sid content -> Story.Script content
+scriptNewToOld (Script xs) = Story.Script $ map f xs
+  where
+    f :: ScriptItem sid content -> ScriptRq content
+    f (ScriptItemHTTP siSerial
+                      _
+                      _
+                      siMethod
+                      siBody
+                      siGetParams
+                      siPostParams
+                      siHeaders
+                      siHTTPPath) =
+       ScriptRq       siSerial
+                      siMethod
+                      siBody
+                      siGetParams
+                      siPostParams
+                      siHeaders
+                      siHTTPPath
 
 
 -- ** Graph algorithms
