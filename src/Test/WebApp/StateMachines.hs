@@ -206,6 +206,10 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
                 f acc rest = error $ "arbitraryScript.shortestScript: unmatched pattern: " ++ show (acc, rest)
 
 
+prop_scriptFromSM_serials :: QC.Property
+prop_scriptFromSM_serials = forAll (scriptFromSM example2) $ mkprop . and . zipWith (==) [0..] . map siSerial . scriptItems
+
+
 -- | default shrink for Scripts
 shrinkScript :: forall sid content . SM sid content -> Script sid content -> [Script sid content]
 shrinkScript machine script = error "wef"
@@ -219,7 +223,7 @@ transitionGraph = error "wef"
 scriptToDot :: forall sid content . (Eq sid, Ord sid, Show sid, Show content)
             => String -> Script sid content -> D.Graph
 scriptToDot name script@(Script []) = error "transitionGraph: empty Script: not implemented."
-scriptToDot name script@(Script (_:_)) = D.Graph D.StrictGraph D.DirectedGraph (Just (D.NameId name)) statements
+scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph (Just (D.NameId name)) statements
   where
     nodes :: [State sid content]
     nodes = nubBy ((==) `on` stateId) . catMaybes $ siFromState (head is) : map siThisState is
