@@ -103,7 +103,7 @@ instance Monoid (Script sid content) where
   mempty = Script []
 
 newtype Trace sid content = Trace { traceItems  :: [TraceItem sid content] }
-  deriving (Typeable)
+  deriving (Show, Typeable)
 
 data ScriptItem sid content =
       ScriptItemHTTP
