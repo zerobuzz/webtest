@@ -160,11 +160,6 @@ instance Monoid (Script sid content) where
   mappend (Script xs) (Script ys) = Script $ xs ++ ys
   mempty = Script []
 
-getScriptItem :: Script sid content -> Ix -> Maybe (ScriptItem sid content)
-getScriptItem (Script rqs) serial = case filter ((== serial) . siSerial) rqs of
-    []   -> Nothing
-    [rq] -> Just rq
-
 
 -- ** Constructing scripts
 
@@ -769,9 +764,21 @@ compileTestCase _ (filename, testData) = do
 
 -- * More helpers
 
-getScriptItemHTTPContent :: ScriptItem sid content -> Maybe content
-getScriptItemHTTPContent (ScriptItemHTTP _ _ _ _ (Right body) _ _ _ _) = Just body
-getScriptItemHTTPContent _ = Nothing
+getScriptItem :: Script sid content -> Ix -> Maybe (ScriptItem sid content)
+getScriptItem (Script rqs) serial = case filter ((== serial) . siSerial) rqs of
+    []   -> Nothing
+    [rq] -> Just rq
+
+
+getScriptItemContent :: ScriptItem sid content -> Maybe content
+getScriptItemContent (ScriptItemHTTP _ _ _ _ (Right body) _ _ _ _) = Just body
+getScriptItemContent (ScriptItemHTTP _ _ _ _ _ _ _ _ _)            = Nothing
+
+
+getScriptContent :: Script sid content -> Ix -> Maybe content
+getScriptContent (Script rqs) serial = case filter ((== serial) . siSerial) rqs of
+    []   -> Nothing
+    [rq] -> getScriptItemContent rq
 
 
 -- | ratio of 200 responses vs. all others.

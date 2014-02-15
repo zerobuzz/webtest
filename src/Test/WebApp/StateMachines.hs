@@ -35,6 +35,7 @@ import Data.String.Conversions
 import Data.Typeable
 import GHC.Generics
 import Language.Dot as D
+import Network.HTTP
 import Network.URI
 import Prelude hiding ((++))
 import Test.QuickCheck as QC
@@ -242,6 +243,26 @@ scriptToDot machine name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.Direc
                  ("fontsize",   cs $ show 9
                   ) :
                  []
+
+
+-- | ScriptItemHTTP constructor function.  Use this when writing 'SM'
+-- machines.  Internals like serial numbers are initialized by
+-- 'scriptFromSM'.
+mkScriptItemHTTP :: RequestMethod -> Either SBS content
+                 -> [(SBS, SBS)] -> [(SBS, SBS)] -> [(SBS, SBS)]
+                 -> Either URI PathRef
+                 -> ScriptItem sid content
+mkScriptItemHTTP method body getparams postparams headers ref = ScriptItemHTTP
+        { siSerial       = Ix (-1)
+        , siFromState    = Nothing
+        , siThisState    = Nothing
+        , siMethod       = method
+        , siBody         = body
+        , siGetParams    = getparams
+        , siPostParams   = postparams
+        , siHeaders      = headers
+        , siHTTPPath     = ref
+        }
 
 
 -- ** Graph algorithms
