@@ -50,15 +50,13 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.HTTP as NH
 
-import Test.WebApp.HTTP.Story hiding (Script (..), Story (..))
+import Test.WebApp.Script
 import Test.WebDriver.Missing
 import Test.QuickCheck.Missing
 import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (..),
                                      propTrace, propTrace', predecessors, successors, ancestors, descendants,
                                      shortcuts, shortcuts', shortestTerminatingTrace, arbitraryTrace)
                                -- (all the above will eventually be merged into here.)
-
-import qualified Test.WebApp.HTTP.Story as Story
 
 {-
 import Test.WebDriver.Capabilities
@@ -93,44 +91,8 @@ data State sid content =
         }
   deriving (Typeable)
 
-instance (Show sid) => Show (State sid content) where show s = "<State " <> show (stateId s) <> ">"
-
-newtype Script sid content = Script { scriptItems :: [ScriptItem sid content] }
-  deriving (Show, Typeable)
-
-instance Monoid (Script sid content) where
-  mappend (Script xs) (Script ys) = Script $ xs ++ ys
-  mempty = Script []
-
-newtype Trace sid content = Trace { traceItems  :: [TraceItem sid content] }
-  deriving (Show, Typeable)
-
-data ScriptItem sid content =
-      ScriptItemHTTP
-        { siSerial       :: Ix
-        , siFromState    :: Maybe (State sid content)
-        , siThisState    :: Maybe (State sid content)
-        , siMethod       :: NH.RequestMethod
-        , siBody         :: Either SBS content
-        , siGetParams    :: [(SBS, SBS)]
-        , siPostParams   :: [(SBS, SBS)]
-        , siHeaders      :: [(SBS, SBS)]
-        , siHTTPPath     :: Either URI IxRef
-        }
-{-
-    | ScriptItemDWD
-        { siSerial       :: Ix
-        , siDWD          :: (MonadIO wd, WebDriver wd) => wd (Either Element content)
-        }
--}
-  deriving (Show, Typeable, Generic)
-
-data TraceItem sid content =
-      TraceItemHTTP
-        { tiScriptItem :: ScriptItem sid content
-        , tiEffectHTTP :: Maybe (NH.Response LBS)
-        }
-  deriving (Show, Typeable, Generic)
+instance (Show sid) => Show (State sid content) where
+    show s = "<State " <> show (stateId s) <> ">"
 
 
 mkMachine :: (Eq sid, Enum sid, Bounded sid, Ord sid, Show sid)
@@ -141,6 +103,10 @@ mkMachine states = if null dupeIds
   where
     ids = map stateId states
     dupeIds = ids \\ nub ids
+
+
+getState :: (Ord sid) => SM sid content -> sid -> Maybe (State sid content)
+getState (SM m) sid = Map.lookup sid m
 
 
 -- | arbitrary scripts from a given state machine.
@@ -174,9 +140,10 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
             scripts :: [Script sid content]
                 <- join <$>
                    mapM (\ (thisItem, thisSid) -> do
-                            let thisItem' = thisItem { siSerial     = length (scriptItems script)
-                                                     , siFromState  = Just lastState
-                                                     , siThisState  = Just thisState
+                            let thisItem' :: ScriptItem sid content
+                                thisItem' = thisItem { siSerial     = Ix $ length (scriptItems script)
+                                                     , siFromState  = Just $ stateId lastState
+                                                     , siThisState  = Just $ stateId thisState
                                                      }
                                 Just thisState = Map.lookup thisSid $ fromSM machine
 
@@ -186,8 +153,11 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
             return $ shortestScript scripts
 
         preferTerminals :: [(ScriptItem sid content, sid)] -> [(ScriptItem sid content, sid)]
-        preferTerminals = sortBy (\ a b -> f (siThisState $ fst a) (siThisState $ fst b))
+        preferTerminals = sortBy (\ a b -> f (g a) (g b))
             where
+                g :: (ScriptItem sid content, a) -> Maybe (State sid content)
+                g (a, sid) = siThisState a >>= getState machine
+
                 f :: Maybe (State sid content) -> Maybe (State sid content) -> Ordering
                 f (Just (stateTerminal -> True)) (Just (stateTerminal -> False)) = EQ
                 f (Just (stateTerminal -> True)) (Just _) = GT
@@ -209,7 +179,7 @@ scriptFromSM machine = mkStart >>= \ state -> sized $ \ size -> mkItem (size + 1
 
 
 prop_scriptFromSM_serials :: (Ord sid, Show sid, Show property) => SM sid property -> QC.Property
-prop_scriptFromSM_serials sm = forAll (scriptFromSM sm) $ and . zipWith (==) [0..] . map siSerial . scriptItems
+prop_scriptFromSM_serials sm = forAll (scriptFromSM sm) $ and . zipWith (==) [(Ix 0)..] . map siSerial . scriptItems
 
 
 -- | default shrink for Scripts
@@ -223,12 +193,16 @@ transitionGraph = error "wef"
 
 -- | FIXME: show transition http (or wd) request.
 scriptToDot :: forall sid content . (Eq sid, Ord sid, Show sid, Show content)
-            => String -> Script sid content -> D.Graph
-scriptToDot name script@(Script []) = error "transitionGraph: empty Script: not implemented."
-scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph (Just (D.NameId name)) statements
+            => SM sid content -> String -> Script sid content -> D.Graph
+scriptToDot machine name script@(Script []) = error "transitionGraph: empty Script: not implemented."
+scriptToDot machine name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph (Just (D.NameId name)) statements
   where
     nodes :: [State sid content]
-    nodes = nubBy ((==) `on` stateId) . catMaybes $ siFromState (head is) : map siThisState is
+    nodes = nubBy ((==) `on` stateId)
+          . catMaybes
+          . map (getState machine)
+          . catMaybes
+          $ siFromState (head is) : map siThisState is
       where
         is@(_:_) = scriptItems script
 
@@ -236,7 +210,7 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
     statements = (mkNode <$> nodes) ++ (mkEdge <$> scriptItems script)
 
     mkNode :: State sid content -> D.Statement
-    mkNode s = D.NodeStatement (mkNodeId s) . map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
+    mkNode s = D.NodeStatement (mkNodeId (stateId s)) . map (\ (k, v) -> D.AttributeSetValue (D.StringId k) (D.StringId v)) $
                  ("label",      cs . show . stateId $ s
                   ) :
                  ("fontsize",   cs $ show 10
@@ -253,8 +227,8 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
                   ) :
                  []
 
-    mkNodeId :: State sid content -> D.NodeId
-    mkNodeId s = D.NodeId (D.NameId (show (stateId s))) Nothing
+    mkNodeId :: sid -> D.NodeId
+    mkNodeId sid = D.NodeId (D.NameId (show sid)) Nothing
 
     mkEdge :: (ScriptItem sid content) -> D.Statement
     mkEdge i@(ScriptItemHTTP { siFromState = Just fromState, siThisState = Just thisState }) = D.EdgeStatement entities attributes
@@ -268,34 +242,6 @@ scriptToDot name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph
                  ("fontsize",   cs $ show 9
                   ) :
                  []
-
-
--- ** A very strange hack
-
--- | There are currently two competing 'Script' types: one in this
--- module and a legacy one in module "Test.WebApp.HTTP.Story".  In
--- order to use the functionailty implemented for the latter, use this
--- conversion function.
-scriptNewToOld :: forall sid content . Script sid content -> Story.Script content
-scriptNewToOld (Script xs) = Story.Script $ map f xs
-  where
-    f :: ScriptItem sid content -> ScriptRq content
-    f (ScriptItemHTTP siSerial
-                      _
-                      _
-                      siMethod
-                      siBody
-                      siGetParams
-                      siPostParams
-                      siHeaders
-                      siHTTPPath) =
-       ScriptRq       siSerial
-                      siMethod
-                      siBody
-                      siGetParams
-                      siPostParams
-                      siHeaders
-                      siHTTPPath
 
 
 -- ** Graph algorithms

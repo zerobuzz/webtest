@@ -23,9 +23,9 @@ library
     Test.QuickCheck.Store,
     Test.WebApp.Arbitrary,
     Test.WebApp.HTTP.Property,
-    Test.WebApp.HTTP.Story,
     Test.WebApp.HTTP.Util,
     Test.WebApp.Orphans,
+    Test.WebApp.Script,
     Test.WebApp.StateMachines,
     Test.WebApp.WebDriver,
     Test.WebDriver.Missing
