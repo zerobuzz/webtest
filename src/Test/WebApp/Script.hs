@@ -10,22 +10,20 @@
 
 {-# OPTIONS -fwarn-unused-imports -fno-warn-incomplete-patterns #-}
 
-{-| This module introduces the 'Script' and 'Trace' types.  A 'Script'
-is a list of HTTP requests that can be printed for inspection,
-serialized, or compiled to python.  It can also be run through an
-interpreter that produces a 'Trace'.  The story contains the responses
-from the server together with the requests.
+{-| This module introduces the types 'Script' and 'Trace'.  A 'Script'
+is a list of events called 'ScriptItem's (HTTP requests, browser
+events, etc.).  A 'Script' can be printed for inspection, serialized,
+compiled to python, or (most interestingly) run through an interpreter
+that produces a 'Trace'.  The 'Trace' contains the events together
+with their effects (responses from the backend or selenium etc.).
 
-The most common way of using this is to write an arbitrary instance
-for a newtype-wrapper around 'Script', and a set of properties on
-stories.
+Both legal and illegal (as far as the REST counterpart is concerned)
+request sequences can be tested (the properties are free to expect
+either success or error in any context).
 
 The requests in a 'Script' depend on each other, and there is a
-reference mechanism for accessing objects that are returned from the
-server earlier for constructing later requests.  Both legal and
-illegal (as far as the REST counterpart is concerned) request
-sequences can be tested (the properties are free to expect either
-success or error in any context).
+reference mechanism (see e.g. reduceRefsTrace), for using earlier
+effects in the constructions of later events.
 
 [1] Koen Claessen, John Hughes, Testing Monadic Code with
     QuickCheck, Department of Computer Science, Chalmers University of
@@ -76,22 +74,27 @@ import Test.WebApp.Orphans ()
 
 -- * Script requests
 
--- | One request in a 'Script'.  For convenience, the body may be
--- stored in a typed way, and will be serialized using 'ToJSON', but
--- it is also possible to write requests with arbitrarily broken
--- bodies.  The serial number is used for extracting request paths
--- from earlier responses, and for property checking in stories (see
--- 'Script' type for more info).  The path is either a 'URI', or a
--- reference that is passed to a path constructor function (see
--- below).
+-- | One event in a 'Script'.  The serial number is needed when
+-- constructing later script items from earlier ones and when writing
+-- 'Trace' properties.  See 'Script' type for more info on serial
+-- numbers.
+--
+-- HTTP: For convenience, the body may be stored in a typed way, and
+-- will be serialized using 'ToJSON', but it is also possible to write
+-- requests with arbitrarily broken bodies.  The path is either a
+-- 'URI', or a reference that is passed to a path constructor function
+-- (see below).
 --
 -- For instance, you may reference an earlier @POST@ request, retrieve
 -- the path of an object that has been stored, and use that path in a
 -- @GET@ request to retrieve it.
 --
--- (Future work: constructor 'DynScriptItem' makes use of past
--- responses (not only requests) in order to generate requests
--- dynamically (won't work in python compiler).
+-- WebDriver: coming up...
+--
+-- (Future work: constructor 'ScriptItemRT' (RunTime) makes use of
+-- past responses (not only requests) in order to generate requests
+-- dynamically.  This constructor will lack many nice features such as
+-- compilability to python.)
 data ScriptItem sid content =
       ScriptItemHTTP
         { siSerial       :: Ix
@@ -142,26 +145,40 @@ pathRef _ = Nothing
 -- * Scripts
 
 -- | A 'Script' is a list of requests.  Scripts are run head-to-last.
--- The 'ScriptItem' type has a serial number.  Serial numbers are not
--- continuous (possibly N is not used, but N+1 is), not monotonous
--- (numbers may alternatingly increase and decrease over time), and
--- unique (no serial number is used twice).
+-- The 'ScriptItem' type has a serial number.  Serial numbers are
+-- unique (no serial number is used twice), but not continuous
+-- (possibly N is not used, but N+1 is) and not monotonous (numbers
+-- may alternatingly increase and decrease over time).
 newtype Script sid content = Script { scriptItems :: [ScriptItem sid content] }
   deriving (Show, Eq, Typeable, Generic)
 
 instance (Cereal.Serialize sid, Cereal.Serialize content)
     => Cereal.Serialize (Script sid content)
 
--- | (In script concatenation, no sanitation of serial numbers of
--- pathrefs is taking place.  FIXME: at least check if it's sound?
--- anyway, we need another abstraction layer here.  think about this
--- some more!)
+-- | In script concatenation, no sanitation of serial numbers or
+-- pathrefs is taking place.  (FIXME: this should either crash on
+-- unsound concatenations or sanitize them where possible.)
 instance Monoid (Script sid content) where
   mappend (Script xs) (Script ys) = Script $ xs ++ ys
   mempty = Script []
 
 
 -- ** Constructing scripts
+
+-- | Very basic DSL for writing scripts in a more convenient form
+-- (this is work in progress).
+newScript :: forall sid content . [(String, String, Ix -> PathRef -> ScriptItem sid content)] -> Script sid content
+newScript = Script . f (Ix 0) [("/", PathRefRoot)]
+  where
+    f :: Ix
+      -> [(String, PathRef)]
+      -> [(String, String, Ix -> PathRef -> ScriptItem sid content)]
+      -> [ScriptItem sid content]
+    f _ _ [] = []
+    f i ctx ((label, refstring, x):xs) =
+        case lookup refstring ctx of
+            Just pathref -> x i pathref : f (nextIx i) ((label, PathRef i):ctx) xs
+            Nothing -> error $ printf "item %i: could not find label %s" (fromIx i) (show label)
 
 nextIx :: Ix -> Ix
 nextIx = Ix . (+1) . fromIx
@@ -184,21 +201,6 @@ readReqBody (LBS.intercalate "\n" -> s) = maybe (Left $ cs s) (Right) $ JS.decod
 
 emptyReqBody :: Either SBS content
 emptyReqBody = Left ""
-
--- | Very basic DSL for writing scripts in a more convenient form
--- (this is work in progress).
-newScript :: forall sid content . [(String, String, Ix -> PathRef -> ScriptItem sid content)] -> Script sid content
-newScript = Script . f (Ix 0) [("/", PathRefRoot)]
-  where
-    f :: Ix
-      -> [(String, PathRef)]
-      -> [(String, String, Ix -> PathRef -> ScriptItem sid content)]
-      -> [ScriptItem sid content]
-    f _ _ [] = []
-    f i ctx ((label, refstring, x):xs) =
-        case lookup refstring ctx of
-            Just pathref -> x i pathref : f (nextIx i) ((label, PathRef i):ctx) xs
-            Nothing -> error $ printf "item %i: could not find label %s" (fromIx i) (show label)
 
 newLabelledItem ::
      String
@@ -225,25 +227,44 @@ sanitizeScriptItemContent (Left s) = maybe (Left s) (Right) . JS.decode $ cs s
 
 -- ** Arbitrary scripts
 
--- | Generate arbitrary 'Script's.  This is more complicated than
--- 'listOf', since the path refs are context sensitive.  Takes a list
--- of serial numbers of script items in earlier segments.
+instance (Arbitrary content, Show content, Eq sid, Eq content) => Arbitrary (Script sid content) where
+  arbitrary = arbitraryScript mempty Nothing
+  shrink = shrinkScript
+
+instance (Arbitrary content, Show content, Eq content) => Arbitrary (ScriptItem sid content) where
+  arbitrary = arbitraryScriptItem mempty Nothing
+  shrink = shrinkScriptItem
+
+
+-- | Generate arbitrary 'Script's.  This is slightly more
+-- sophisticated than 'listOf', since the path refs are context
+-- sensitive.  Takes a 'RefCtx' and an (optional) probability
+-- distribution over request methods.
 arbitraryScript :: forall sid content . (Arbitrary content, Show content)
-                => RefCtx -> Maybe [(Int, RequestMethod)] -> Gen (Script sid content)
-arbitraryScript context desiredMethods = Script . reverse . snd <$>
-      (listOf (arbitrary :: Gen ()) >>= foldM f (context, []))
+          => RefCtx -> Maybe [(Int, RequestMethod)] -> Gen (Script sid content)
+arbitraryScript ctx desiredMethods = Script . reverse . fst <$>
+      (listOf (arbitrary :: Gen ()) >>= foldM f ([], ctx))
   where
-    f :: (RefCtx, [ScriptItem sid content]) -> a -> Gen (RefCtx, [ScriptItem sid content])
-    f (ctx, rqs) _ = do
+    f :: ([ScriptItem sid content], RefCtx) -> () -> Gen ([ScriptItem sid content], RefCtx)
+    f (rqs, ctx) () = do
         rq <- arbitraryScriptItem ctx desiredMethods
-        return (ctx <> scriptItemContext rq, rq:rqs)
+        return (rq:rqs, ctx <> scriptItemContext rq)
+
+
+-- | The default shrink method for 'Script's is to shrink the list of
+-- script items and call 'dropDanglingReferences' on all outcomes.
+shrinkScript :: (Eq sid, Eq content, Show content, Arbitrary content)
+          => Script sid content -> [Script sid content]
+shrinkScript = nub . fmap (dropDanglingReferences . Script) . shrink . scriptItems
+
 
 -- | In a given 'RefCtx' and with an (optional) given request method
--- distribution, construct a request with incrementing serial numbers,
--- arbitrary but sound references, arbitrary but sound methods and
--- contents, and empty get and post params and headers.
+-- distribution, construct a request with fresh serial number,
+-- arbitrary but sound 'PathRef', arbitrary but sound method and
+-- content, and empty get and post params and headers.  If request
+-- method distribution is 'Nothing', a plausible default is used.
 arbitraryScriptItem :: forall sid content . (Arbitrary content, Show content)
-                  => RefCtx -> Maybe [(Int, RequestMethod)] -> Gen (ScriptItem sid content)
+          => RefCtx -> Maybe [(Int, RequestMethod)] -> Gen (ScriptItem sid content)
 arbitraryScriptItem ctx desiredMethods = do
       let defaultMethods :: [(Int, RequestMethod)]
           defaultMethods = [ (7, GET)
@@ -255,30 +276,29 @@ arbitraryScriptItem ctx desiredMethods = do
                            ]
 
       let ix    = nextIxCtx ctx
-      pathref    <- fmap Right . QC.elements . Set.toList $ refCtx ctx
+      pathref  <- fmap Right . QC.elements . Set.toList $ refCtx ctx
       method   <- QC.frequency . map (second pure) . maybe defaultMethods id $ desiredMethods
       content  <- Right <$> arbitrary
 
       return $ ScriptItemHTTP ix Nothing Nothing method content [] [] [] pathref
 
 
-instance (Arbitrary content, Show content, Eq sid, Eq content) => Arbitrary (Script sid content) where
-  arbitrary = arbitraryScript mempty Nothing
-  shrink (Script xs) = nub $ dropDanglingReferences . Script <$> shrink xs
-
-instance (Arbitrary content, Show content, Eq content) => Arbitrary (ScriptItem sid content) where
-  arbitrary = arbitraryScriptItem mempty Nothing
-  shrink rq = case siBody rq of
-                Left s   -> upd <$> [Left ""]
-                Right c  -> upd . Right <$> shrink c
+-- | Default shrink method for 'ScriptItem's just shrinks the content.
+shrinkScriptItem :: forall sid content . (Arbitrary content)
+          => ScriptItem sid content -> [ScriptItem sid content]
+shrinkScriptItem item =
+        case siBody item of
+          Left s   -> upd <$> [Left ""]
+          Right c  -> upd . Right <$> shrink c
     where
       upd :: Either SBS content -> ScriptItem sid content
-      upd b = rq { siBody = b }
+      upd b = item { siBody = b }
 
 
 -- | All scripts must have distinct serial numbers.
 prop_arbitraryScriptIx :: (Script sid content) -> Property
 prop_arbitraryScriptIx (Script rqs) = mkprop $ length rqs == (length . nub . map siSerial $ rqs)
+
 
 -- | All scripts must not have dangling references.
 prop_arbitraryScriptPathRef :: (Script sid content) -> Property
@@ -299,7 +319,8 @@ fuzzLastNRqs n (Script rqs) = do
       case splitAt i rqs of
         (notToBeFuzzed, toBeFuzzed) -> Script . (notToBeFuzzed ++) <$> mapM fuzz toBeFuzzed
 
--- | leaves serial number and path ref alone.  breaking the former is
+
+-- | Leave serial number and path ref alone.  breaking the former is
 -- not interesting, because it would only attack consistency of the
 -- test code, not the code under test.  breaking the latter is more
 -- interesting if we have a 'RefCtx' to do it, so we need to do
@@ -328,10 +349,11 @@ instance forall sid content . (Fuzz content, JS.ToJSON content) => Fuzz (ScriptI
 
 -- | The context of a script at any given point in the request list
 -- with respect to references is defined by three sets: (1) All serial
--- numbers in scope, (2) all valid paths (PathRefRoot and the serial
--- numbers of all requests that have created (not modified) a path by
--- method @POST@ or @PUT@), and (3) all deleted paths (method
--- @DELETE@).
+-- numbers in scope, (2) all added path refs (PathRefRoot and the
+-- serial numbers of all requests that have created (not modified) a
+-- path using methods @POST@, @PUT@), and (3) all removed path refs
+-- (method @DELETE@).  The set of active path refs is defined as
+-- @added \\ removed@ (see 'refCtx').
 data RefCtx = RefCtx
       { ctxSerials :: Set Ix
       , ctxAddedPaths :: Set PathRef
@@ -339,9 +361,8 @@ data RefCtx = RefCtx
       }
   deriving (Show, Eq, Ord, Generic)
 
--- | The empty context contains 'PathRefRoot' in the set of added refs.
--- Append crashes if the two sets of serial numbers overlap.  (FIXME:
--- is this comment visible in haddock?  where?)
+-- | The empty context contains 'PathRefRoot' in the set of added
+-- refs.  Append crashes if the two sets of serial numbers overlap.
 instance Monoid RefCtx where
     mempty = RefCtx Set.empty (Set.singleton PathRefRoot) Set.empty
     mappend :: RefCtx -> RefCtx -> RefCtx
@@ -349,17 +370,19 @@ instance Monoid RefCtx where
            | (Set.null $ Set.intersection serials serials') =
                RefCtx (Set.union serials serials') (Set.union added added') (Set.union removed removed')
 
--- | The set of all valid references in a given context.
+-- | The set of all active references (@added \\ removed@) in a given
+-- context.
 refCtx :: RefCtx -> Set PathRef
 refCtx ctx = ctxAddedPaths ctx Set.\\ ctxRemovedPaths ctx
 
+-- | Derive the context from a 'Script'.
 scriptContext :: (Show content) => Script sid content -> RefCtx
 scriptContext = foldl (<>) mempty . map scriptItemContext . scriptItems
 
--- | If item is a POST or PUT, add pathref to "added"; if it is a
--- DELETE, add to "removed"; otherwise, neither.  (FIXME: This may or
--- may not be what you need.  This library should offer something more
--- configurable.)
+-- | Derive the context from a 'ScriptItem'.  If item is a POST or
+-- PUT, add pathref to "added"; if it is a DELETE, add to "removed";
+-- otherwise, neither.  (FIXME: This may or may not be what you need.
+-- This library should offer something more configurable.)
 scriptItemContext :: (Show content) => ScriptItem sid content -> RefCtx
 scriptItemContext rq = RefCtx (Set.singleton (siSerial rq)) added removed
     where
@@ -448,7 +471,7 @@ dropDanglingReferences'3 (Script rqs) = Script $ f mempty rqs
 
 
 
--- * Stories
+-- * Traces
 
 -- | A 'Trace' is an interpreted 'Script'.  Trace items (or events, or
 -- actions) consist of a 'ScriptItemHTTP' and an HTTP response.  The are
@@ -499,15 +522,18 @@ data TraceError sid content =
 
 -- * Reference reduction
 
--- | Headers and body of a 'ScriptItemHTTP' may contain (sub-)strings of the
--- form @___SCRIPT_REF___<i>@, or @___SCRIPT_REF___@, which index into
--- earlier 'Script' items (the latter into 'PathRefRoot').  This
--- function finds those, calls a transformer on each occurrance, and
--- substitutes it by the resulting string.  It accepts a 'RefCtx' so
--- that references to non-existing items can be answered with a
--- comprehensive error message.  The first argument states whether
--- surrounding quotes (double or single) should be matched away
--- together with the reference string.
+-- | Headers and body of a 'ScriptItemHTTP' may contain (sub-)strings
+-- of the form @___SCRIPT_REF___<i>@, or @___SCRIPT_REF___@, which
+-- index into earlier 'Script' items and into 'PathRefRoot',
+-- respectively.  'reduceRefs' calls a transformer on each occurrance
+-- and substitutes it by the resulting string.  It accepts a 'RefCtx'
+-- so that references to non-existing items can trigger an informative
+-- error message.
+--
+-- The first argument states whether surrounding quotes (double or
+-- single) should be matched away together with the reference string
+-- (this is necessary for code generation where a string literal is to
+-- be replaced by a string variable).
 reduceRefs :: Bool -> RefCtx -> (PathRef -> Maybe LBS) -> LBS -> LBS
 reduceRefs quoted ctx rewrite js =
       if null badrefs
@@ -545,9 +571,10 @@ test_reduceRefs = f True == ["PathRefRoot","PathRef 0"] && f False == ["PathRefR
     refs = [PathRefRoot, PathRef (Ix 0)]
 
 
--- | Render 'PathRef' into a string suitable for being found by
--- 'reduceRefs'.  The boolean flag is for double-quotation (yes
--- means double-quotes).
+-- | Render 'PathRef' into a string suitable for being replaced by
+-- 'reduceRefs'.  This is needed for things like header strings
+-- containing path refs.  The boolean flag is for double-quotation
+-- (yes means double-quotes).
 scriptRefToSBS :: Bool -> PathRef -> LBS
 scriptRefToSBS False PathRefRoot = "___SCRIPT_REF___"
 scriptRefToSBS False (PathRef i) = "___SCRIPT_REF___" <> cs (show i)
@@ -555,19 +582,19 @@ scriptRefToSBS True  PathRefRoot = "\"___SCRIPT_REF___\""
 scriptRefToSBS True  (PathRef i) = "\"___SCRIPT_REF___" <> cs (show i) <> "\""
 
 
--- | Dynamic 'reduceRefs', as needed for 'Trace'.  (See 'reduceRefsPy'
+-- | Dynamic 'reduceRefs', as needed for 'runScript'.  (See 'reduceRefsPy'
 -- for a static variant.)
-reduceRefsDyn :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
+reduceRefsTrace :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
          => Bool -> URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
          -> SBS -> SBS
-reduceRefsDyn quoted rootPath constructPath story = cs . reduceRefs quoted ctx (fmap (qu . ru) . lu) . cs
+reduceRefsTrace quoted rootPath constructPath trace = cs . reduceRefs quoted ctx (fmap (qu . ru) . lu) . cs
   where
-    script :: Script sid content  = Script . map tiScriptItem $ traceItems story
+    script :: Script sid content  = Script . map tiScriptItem $ traceItems trace
     ctx    :: RefCtx              = scriptContext script
 
     lu :: PathRef -> Maybe URI   -- lookup xref
     lu PathRefRoot = Just rootPath
-    lu (PathRef i) = case filter ((== i) . siSerial . tiScriptItem) $ traceItems story of
+    lu (PathRef i) = case filter ((== i) . siSerial . tiScriptItem) $ traceItems trace of
                      [item] -> constructPath item
 
     ru :: URI -> LBS     -- render uri
@@ -577,39 +604,27 @@ reduceRefsDyn quoted rootPath constructPath story = cs . reduceRefs quoted ctx (
     qu = if quoted then cs . show else id
 
 
-reduceRefsDynAssoc :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
+reduceRefsTraceAssoc :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
          => URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
          -> [(SBS, SBS)] -> [(SBS, SBS)]
-reduceRefsDynAssoc root construct story = map (first f . second f)
-  where f = reduceRefsDyn False root construct story
+reduceRefsTraceAssoc root construct trace = map (first f . second f)
+  where f = reduceRefsTrace False root construct trace
 
 
-reduceRefsDynBody :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
+reduceRefsTraceBody :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
          => URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
          -> Either SBS content -> Either SBS content
-reduceRefsDynBody root construct story (Left s) =
-    Left (reduceRefsDyn True root construct story s)
-reduceRefsDynBody root construct story (Right c) =
-    sanitizeScriptItemContent . Left . reduceRefsDyn True root construct story . cs $ JS.encode c
+reduceRefsTraceBody root construct trace (Left s) =
+    Left (reduceRefsTrace True root construct trace s)
+reduceRefsTraceBody root construct trace (Right c) =
+    sanitizeScriptItemContent . Left . reduceRefsTrace True root construct trace . cs $ JS.encode c
 
 
 
 -- * interpreter
 
--- | Run a 'Script' and return a list of pairs of 'ScriptItemHTTP' and HTTP
--- responses with serial.  Requests on paths missing due to earlier
--- errors are skipped (response is 'Nothing').  See 'Script' for
--- properties of serial numbers.
---
--- (possible optimization: make runScript take a property of stories
--- that is evaluated after every response on the already-constructed
--- story prefix.  write a function that generates properties from such
--- a property of traces and a machine to run it on.  these properties
--- would be a more direct approach to constructing counter-examples
--- than implementing properties on stories and calling runScript and
--- quickCheck manually.  FIXME: reconsider this idea once the
--- implemention of the ideas by Hughes/Claessen are implemented and
--- understood.)
+-- | Run a 'Script' and return a 'Trace'.  Requests on paths missing
+-- due to earlier errors are skipped (response is 'Nothing').
 runScript :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
           => Bool -> URI -> (TraceItem sid content -> Maybe URI) -> Script sid content -> IO (Trace sid content)
 runScript verbose rootPath constructPath (Script rs) = foldM f (Trace []) rs
@@ -631,11 +646,11 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Trace []) rs
 
             case pathMay of
               Just path -> do
-                let body'       = reduceRefsDynBody rootPath constructPath trace body
+                let body'       = reduceRefsTraceBody rootPath constructPath trace body
                     getparams'  = evl getparams
                     postparams' = evl postparams
                     headers'    = evl headers
-                    evl         = reduceRefsDynAssoc rootPath constructPath trace
+                    evl         = reduceRefsTraceAssoc rootPath constructPath trace
 
                 response <- performReq verbose method path getparams' postparams' headers' body'
                 return $ trace <> Trace [TraceItemHTTP rq (Just response)]

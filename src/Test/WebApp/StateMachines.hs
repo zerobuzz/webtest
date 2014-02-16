@@ -15,10 +15,12 @@
 
 {-  OPTIONS -fwarn-unused-imports #-}
 
--- | FIXME: (1) update documentation.  (2) this is about state
--- machines that mix both HTTP 'ScriptRq's / 'StoryItem's and a
--- webdriver equivalent; this means we need to change types 'Script'
--- and 'Story'.  for now, this module is only about HTTP.
+-- | State machines are a formalism for writing 'Arbitrary' instances
+-- of the 'Script' data types that behave as expected by a UI or REST
+-- API.  This is hoped to be easier than writing instances from
+-- scratch, but it has other benefits, like a new state-based
+-- graphical representation of 'Script's and a free shrinking
+-- heuristic that finds short cuts through the transition graph.
 module Test.WebApp.StateMachines
 where
 
@@ -78,8 +80,9 @@ import "monads-tf" Control.Monad.Trans (lift)
 
 
 
--- * State machines
+-- * data type
 
+-- | The state machine type.
 data SM sid content = SM { fromSM :: Map sid (State sid content) }
   deriving (Show)
 
@@ -96,6 +99,7 @@ instance (Show sid) => Show (State sid content) where
     show s = "<State " <> show (stateId s) <> ">"
 
 
+-- | A constructor for state machines that enforces unique 'stateId's.
 mkMachine :: (Eq sid, Enum sid, Bounded sid, Ord sid, Show sid)
           => [State sid content] -> SM sid content
 mkMachine states = if null dupeIds
@@ -106,9 +110,13 @@ mkMachine states = if null dupeIds
     dupeIds = ids \\ nub ids
 
 
+-- | Lookup a 'State' in an 'SM'.
 getState :: (Ord sid) => SM sid content -> sid -> Maybe (State sid content)
 getState (SM m) sid = Map.lookup sid m
 
+
+
+-- * arbitrary scripts
 
 -- | arbitrary scripts from a given state machine.
 scriptFromSM :: forall sid content . (Ord sid, Show sid, Show content)
@@ -183,20 +191,27 @@ prop_scriptFromSM_serials :: (Ord sid, Show sid, Show property) => SM sid proper
 prop_scriptFromSM_serials sm = forAll (scriptFromSM sm) $ and . zipWith (==) [(Ix 0)..] . map siSerial . scriptItems
 
 
--- | default shrink for Scripts
+
+-- * shrinking scripts
+
 shrinkScript :: forall sid content . SM sid content -> Script sid content -> [Script sid content]
-shrinkScript machine script = error "wef"
+shrinkScript machine script = error "shrinkScript: not implemented"
 
 
 transitionGraph :: forall sid content . (Eq sid, Show sid) => String -> Script sid content -> Int
-transitionGraph = error "wef"
+transitionGraph = error "transitionGraph: not implemented"
 
 
--- | FIXME: show transition http (or wd) request.
+
+-- * rendering scripts in transition graphs.
+
+-- | Generate GraphViz output (@.dot@-files).  (The 'SM' from which
+-- the 'Script' has been generated needs to be provided for marking
+-- terminal and start states and such.)
 scriptToDot :: forall sid content . (Eq sid, Ord sid, Show sid, Show content)
-            => SM sid content -> String -> Script sid content -> D.Graph
-scriptToDot machine name script@(Script []) = error "transitionGraph: empty Script: not implemented."
-scriptToDot machine name script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph (Just (D.NameId name)) statements
+            => String -> SM sid content -> Script sid content -> D.Graph
+scriptToDot name machine script@(Script []) = error "transitionGraph: empty Script: not implemented."
+scriptToDot name machine script@(Script (_:_)) = D.Graph D.UnstrictGraph D.DirectedGraph (Just (D.NameId name)) statements
   where
     nodes :: [State sid content]
     nodes = nubBy ((==) `on` stateId)
