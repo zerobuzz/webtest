@@ -9,7 +9,9 @@
 
 {-| Some instances for types from other packages.  You can avoid any
 orphan problems by not importing this module, but instead copying the
-orphans you need into your own code. #-}
+orphans you need into your own code.  (A cleaner way would be to wrap
+all types that we need instances for with newtypes, that that would
+also be more tedious.)  -}
 module Test.WebApp.Orphans where
 
 import Control.Applicative

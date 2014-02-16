@@ -6,7 +6,7 @@
 
 {-# OPTIONS -fwarn-unused-imports #-}
 
-{-| This module uses Adam Curtis' webdriver binding.  You need to
+{-| This module extends Adam Curtis' webdriver binding.  You need to
 download and run server hub and node processes (see
 http://docs.seleniumhq.org/download/ and wiki page linked from there).
 
@@ -17,7 +17,13 @@ Instead of using a headless browser, on debian you can simply run this
 > nohup Xvfb :100 -ac > /dev/null 2> /dev/null &
 > DISPLAY=:100 pybot unit
 
-TODO: checkout packages free, sunroof!
+TODO:
+
+ - some things in this module should go to "Test.WebDriver.Missing"
+   and eventually to the webdriver package.  not sure what the idea of
+   this module will be when those things are gone.
+
+ - checkout package sunroof!
 
 -}
 module Test.WebApp.WebDriver
