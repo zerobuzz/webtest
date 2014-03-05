@@ -15,7 +15,7 @@ is a list of events called 'ScriptItem's (HTTP requests, browser
 events, etc.).  A 'Script' can be printed for inspection, serialized,
 compiled to python, or (most interestingly) run through an interpreter
 that produces a 'Trace'.  The 'Trace' contains the events together
-with their effects (responses from the backend or selenium etc.).
+with their effects (responses from the backend, browser, etc.).
 
 Both legal and illegal (as far as the REST counterpart is concerned)
 request sequences can be tested (the properties are free to expect
@@ -93,7 +93,7 @@ import Test.WebApp.Orphans ()
 -- WebDriver: coming up...
 --
 -- (Future work: constructor 'ScriptItemRT' (RunTime) makes use of
--- past responses (not only requests) in order to generate requests
+-- past effects (not only script items) in order to generate script items
 -- dynamically.  This constructor will lack many nice features such as
 -- compilability to python.)
 data ScriptItem sid content =
@@ -474,11 +474,11 @@ dropDanglingReferences'3 (Script rqs) = Script $ f mempty rqs
 
 -- * Traces
 
--- | A 'Trace' is an interpreted 'Script'.  Trace items (or events, or
--- actions) consist of a 'ScriptItemHTTP' and an HTTP response.  The are
--- arranged in a list in the same order as in the 'Script', i.e. last
--- item was played last.  See 'runScript'.
-newtype Trace sid content = Trace { traceItems  :: [TraceItem sid content] }
+-- | A 'Trace' is an interpreted 'Script'.  'TraceItem's are arranged
+-- in a list in the same order as in the 'Script', i.e. last item was
+-- played last, and associated with an optional test outcome.  See
+-- 'runScript', 'checkScript'.
+newtype Trace sid content = Trace { traceItems  :: [(TraceItem sid content, Maybe Bool)] }
   deriving (Typeable)
 
 data TraceItem sid content =
@@ -492,11 +492,12 @@ instance (Show sid, Show content) => Show (Trace sid content) where
   show (Trace [])       = "(empty Trace)\n"
   show (Trace xs@(_:_)) = ("Trace\n  " <>) . intercalate "\n  " . lines . concat . map f $ xs
     where
-      f :: TraceItem sid content -> String
-      f (TraceItemHTTP rq rsp) = ">>>>>\n" <> ppShow rq <> "\n"
+      f :: (TraceItem sid content, Maybe Bool) -> String
+      f (TraceItemHTTP rq rsp, check) = ">>>>>\n" <> ppShow rq <> "\n"
                  <> case rsp of
                       Just rsp_ -> "<<<<<\n" <> show rsp_ <> "\n" <> cs (rspBody rsp_) <> "\n"
                       Nothing -> "<<<<<\n(skipped)\n"
+                 <> "<<<<<   [" <> show check <> "]\n"
 
 instance Monoid (Trace sid content) where
   mappend (Trace xs) (Trace ys) = Trace $ xs ++ ys
@@ -505,11 +506,11 @@ instance Monoid (Trace sid content) where
 
 getTraceItem :: Trace sid content -> Ix -> Either (TraceError sid content) (TraceItem sid content)
 getTraceItem (Trace trace) serial =
-    case filter ((== serial) . siSerial . tiScriptItem) trace of
-        [result@(TraceItemHTTP rq (Just rsp@(rspCode -> (2, _, _))))] -> Right result
-        [result@(TraceItemHTTP rq (Just rsp@(rspCode -> code)))]      -> Left (TraceErrorHTTP code)
-        [result@(TraceItemHTTP rq Nothing)]                           -> Left (TraceErrorSkipped rq)
-        []                                                            -> Left TraceErrorSerialNotFound
+    case filter ((== serial) . siSerial . tiScriptItem . fst) trace of
+        [fst -> result@(TraceItemHTTP rq (Just rsp@(rspCode -> (2, _, _))))] -> Right result
+        [fst -> result@(TraceItemHTTP rq (Just rsp@(rspCode -> code)))]      -> Left (TraceErrorHTTP code)
+        [fst -> result@(TraceItemHTTP rq Nothing)]                           -> Left (TraceErrorSkipped rq)
+        []                                                                   -> Left TraceErrorSerialNotFound
 
 
 data TraceError sid content =
@@ -590,13 +591,13 @@ reduceRefsTrace :: forall sid content . (Show content, JS.FromJSON content, JS.T
          -> SBS -> SBS
 reduceRefsTrace quoted rootPath constructPath trace = cs . reduceRefs quoted ctx (fmap (qu . ru) . lu) . cs
   where
-    script :: Script sid content  = Script . map tiScriptItem $ traceItems trace
+    script :: Script sid content  = Script . map (tiScriptItem . fst) $ traceItems trace
     ctx    :: RefCtx              = scriptContext script
 
     lu :: PathRef -> Maybe URI   -- lookup xref
     lu PathRefRoot = Just rootPath
-    lu (PathRef i) = case filter ((== i) . siSerial . tiScriptItem) $ traceItems trace of
-                     [item] -> constructPath item
+    lu (PathRef i) = case filter ((== i) . siSerial . tiScriptItem . fst) $ traceItems trace of
+                     [fst -> item] -> constructPath item
 
     ru :: URI -> LBS     -- render uri
     ru = cs . uriPath
@@ -632,11 +633,17 @@ data RunScriptSetup sid content =
       }
 
 
--- | Run a 'Script' and return a 'Trace'.  Requests on paths missing
--- due to earlier errors are skipped (response is 'Nothing').
-runScript :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
-          => RunScriptSetup sid content -> Script sid content -> IO (Trace sid content)
-runScript (RunScriptSetup verbose rootPath extractPath) (Script items) = foldM f (Trace []) items
+-- | Run a 'Script' and return a 'Trace'.  For every 'TraceItem', a
+-- boolean test outcome is computed from it and the 'Trace' history,
+-- and associated with the 'TraceItem' in the new history.  Requests
+-- on paths missing due to earlier errors are skipped (effect is
+-- 'Nothing').
+runScript' :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
+          => RunScriptSetup sid content
+          -> Script sid content
+          -> (TraceItem sid content -> Trace sid content -> Maybe Bool)
+          -> IO (Trace sid content)
+runScript' (RunScriptSetup verbose rootPath extractPath) (Script items) test = foldM f (Trace []) items
   where
     f :: Trace sid content -> ScriptItem sid content -> IO (Trace sid content)
     f trace rq@(ScriptItemHTTP serial _ _ method body getparams postparams headers pathref) = do
@@ -662,9 +669,24 @@ runScript (RunScriptSetup verbose rootPath extractPath) (Script items) = foldM f
                     evl         = reduceRefsTraceAssoc rootPath extractPath trace
 
                 response <- performReq verbose method path getparams' postparams' headers' body'
-                return $ trace <> Trace [TraceItemHTTP rq (Just response)]
+
+                let traceItem = TraceItemHTTP rq (Just response)
+                    checkResult = test traceItem trace
+
+                return $ trace <> Trace [(traceItem, checkResult)]
               Nothing -> do
-                return $ trace <> Trace [TraceItemHTTP rq Nothing]
+                return $ trace <> Trace [(TraceItemHTTP rq Nothing, Nothing)]
+
+
+-- | Run a 'Script' and return a 'Trace'.  Requests on paths missing
+-- due to earlier errors are skipped (effect is 'Nothing').  Check
+-- results are 'Nothing' for all 'TraceItem's.
+runScript :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
+          => RunScriptSetup sid content
+          -> Script sid content
+          -> IO (Trace sid content)
+runScript (RunScriptSetup verbose rootPath extractPath) (Script items) =
+    runScript' (RunScriptSetup verbose rootPath extractPath) (Script items) (\ _ _ -> Nothing)
 
 
 -- | Transform a property of 'Trace's (which you usually would want to
@@ -819,11 +841,11 @@ getScriptContent (Script rqs) serial = case filter ((== serial) . siSerial) rqs 
 errorRate :: Trace sid content -> Double
 errorRate (Trace trace) = fromIntegral (length errors) / fromIntegral (length trace)
   where
-    errors = filter (\ (TraceItemHTTP _ rsp) -> (rspCode <$> rsp) /= Just (2, 0, 0)) trace
+    errors = filter (\ (TraceItemHTTP _ rsp, _) -> (rspCode <$> rsp) /= Just (2, 0, 0)) trace
 
 
 -- | ratio of requests not sent due to earlier errors vs. all others.
 skipRate :: Trace sid content -> Double
 skipRate (Trace trace) = fromIntegral (length skipped) / fromIntegral (length trace)
   where
-    skipped = filter (isNothing . tiEffectHTTP) trace
+    skipped = filter (isNothing . tiEffectHTTP . fst) trace
