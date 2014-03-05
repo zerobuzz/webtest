@@ -57,6 +57,7 @@ data State sid content =
         , stateStart        :: Bool
         , stateTerminal     :: Bool
         , stateTransitions  :: [Script sid content -> Gen (ScriptItem sid content, sid)]
+        , stateTraceInv     :: Maybe (TraceItem sid content -> Trace sid content -> Maybe Bool)
         }
   deriving (Typeable)
 
@@ -188,20 +189,23 @@ occurrances = Map.fromListWith (++) . zipWith (\ i x -> (x, [i])) [0..]
 
 -- * running SM-generated scripts
 
-
-
-  -- FIXME:
-  --
-  -- perhaps SM is not required as argument to checkScript.
-  --
-  -- 'checkScriptSM' then just takes a specialised invariant based on
-  -- state machines.  perhaps a mapping of stateIds to properties?
-  -- then it would be convenient to write a property that only checks
-  -- what happens in a certain state of particular interest.
-
-checkScriptSM :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
-          => RunScriptSetup sid content -> SM sid content -> Script sid content -> IO (Trace sid content)
-checkScriptSM (RunScriptSetup verbose rootPath extractPath) (SM states) (Script items) = error "checkScriptSM: not implemented."
+-- | Like 'runScript'', but use 'stateTraceInv' from 'SM' as
+-- invariant.
+runScriptSM :: forall sid content . (Show sid, Show content, Ord sid,
+                                     JS.FromJSON content, JS.ToJSON content)
+          => RunScriptSetup sid content
+          -> SM sid content
+          -> Script sid content
+          -> IO (Trace sid content)
+runScriptSM (RunScriptSetup verbose rootPath extractPath) (SM states) (Script items) =
+    runScript' (RunScriptSetup verbose rootPath extractPath) (Script items) inv
+  where
+    inv traceItem trace = case stateTraceInv state of
+            Nothing  -> Nothing
+            Just inv -> inv traceItem trace
+      where
+        Just sid    = siThisState $ tiScriptItem traceItem
+        Just state  = Map.lookup sid states
 
 
 
