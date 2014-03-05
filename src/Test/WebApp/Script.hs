@@ -477,7 +477,7 @@ dropDanglingReferences'3 (Script rqs) = Script $ f mempty rqs
 -- | A 'Trace' is an interpreted 'Script'.  'TraceItem's are arranged
 -- in a list in the same order as in the 'Script', i.e. last item was
 -- played last, and associated with an optional test outcome.  See
--- 'runScript', 'checkScript'.
+-- 'runScript'', 'runScript'.
 newtype Trace sid content = Trace { traceItems  :: [(TraceItem sid content, Maybe Bool)] }
   deriving (Typeable)
 
@@ -584,7 +584,7 @@ scriptRefToSBS True  PathRefRoot = "\"___SCRIPT_REF___\""
 scriptRefToSBS True  (PathRef i) = "\"___SCRIPT_REF___" <> cs (show i) <> "\""
 
 
--- | Dynamic 'reduceRefs', as needed for 'runScript'.  (See 'reduceRefsPy'
+-- | Dynamic 'reduceRefs', as needed for 'runScript''.  (See 'reduceRefsPy'
 -- for a static variant.)
 reduceRefsTrace :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
          => Bool -> URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
@@ -652,7 +652,7 @@ runScript' (RunScriptSetup verbose rootPath extractPath) (Script items) test = f
                             Right (PathRef ix) ->
                               case getTraceItem trace ix of
                                  Right item                     -> extractPath item
-                                 Left TraceErrorSerialNotFound  -> error $ "runScript: dangling pathref: " ++ ppShow (pathref, trace)
+                                 Left TraceErrorSerialNotFound  -> error $ "runScript': dangling pathref: " ++ ppShow (pathref, trace)
                                  Left (TraceErrorHTTP _)        -> Nothing
                                  Left (TraceErrorSkipped _)     -> Nothing
                             Right PathRefRoot ->
@@ -697,6 +697,11 @@ dynamicScriptProp :: forall sid content . (Show sid, Show content, JS.FromJSON c
           => (Trace sid content -> Property) -> RunScriptSetup sid content -> (Script sid content -> Property)
 dynamicScriptProp prop setup script =
     QC.morallyDubiousIOProperty $ prop <$> runScript setup script
+
+
+-- FIXME: dynamicScriptProp'?  (it acts to runScript' as
+-- dynamicScriptProp acts to runScript.  (hm...  what does that even
+-- mean?))
 
 
 
