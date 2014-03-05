@@ -1,19 +1,17 @@
+{-# LANGUAGE DeriveDataTypeable                       #-}
+{-# LANGUAGE DeriveGeneric                            #-}
+{-# LANGUAGE NamedFieldPuns                           #-}
 {-# LANGUAGE NoImplicitPrelude                        #-}
 {-# LANGUAGE OverloadedStrings                        #-}
+{-# LANGUAGE PackageImports                           #-}
 {-# LANGUAGE RankNTypes                               #-}
+{-# LANGUAGE RecordWildCards                          #-}
 {-# LANGUAGE ScopedTypeVariables                      #-}
 {-# LANGUAGE TupleSections                            #-}
 {-# LANGUAGE TypeFamilies                             #-}
-{-# LANGUAGE DeriveGeneric                            #-}
-{-# LANGUAGE DeriveDataTypeable                       #-}
 {-# LANGUAGE ViewPatterns                             #-}
-{-# LANGUAGE RecordWildCards                          #-}
-{-# LANGUAGE NamedFieldPuns                           #-}
 
-{-# LANGUAGE FlexibleContexts, TypeFamilies, GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses, PackageImports #-}
-
-{-  OPTIONS -fwarn-unused-imports #-}
+{-# OPTIONS -fwarn-unused-imports #-}
 
 -- | State machines are a formalism for writing 'Arbitrary' instances
 -- of the 'Script' data types that behave as expected by a UI or REST
@@ -25,58 +23,25 @@ module Test.WebApp.StateMachines
 where
 
 import Control.Applicative
-import Control.Arrow
 import Control.Monad
 import Data.Function
 import Data.List as List
 import Data.Map (Map)
 import Data.Maybe
 import Data.Monoid
-import Data.Set (Set)
 import Data.String.Conversions
 import Data.Typeable
-import GHC.Generics
 import Language.Dot as D
 import Network.HTTP
 import Network.URI
 import Prelude hiding ((++))
 import Test.QuickCheck as QC
-import Test.WebDriver
-import Test.WebDriver.Monad
-import Text.Printf
 import Text.Show.Pretty
-
-import "mtl" Control.Monad.Trans
 
 import qualified Data.Aeson as JS
 import qualified Data.Map as Map
-import qualified Data.Set as Set
-import qualified Network.HTTP as NH
 
 import Test.WebApp.Script
-import Test.WebDriver.Missing
-import Test.QuickCheck.Missing
-import Test.WebApp.WebDriver hiding (State (..), StateId, Machine (..), Trace (..),
-                                     propTrace, propTrace', predecessors, successors, ancestors, descendants,
-                                     shortcuts, shortcuts', shortestTerminatingTrace, arbitraryTrace)
-                               -- (all the above will eventually be merged into here.)
-
-{-
-import Test.WebDriver.Capabilities
-import Test.WebDriver.Classes
-import Test.WebDriver.Commands
--- import Test.WebDriver.Internal
-
-import Control.Applicative
-import Control.Exception.Lifted
-import Control.Monad.Base (MonadBase, liftBase)
-import Control.Monad.IO.Class (MonadIO)
-import Control.Monad (liftM)
-import Control.Monad.Trans.Control (MonadBaseControl(..), StM)
-import "MonadCatchIO-transformers" Control.Monad.CatchIO (MonadCatchIO)
-import "monads-tf" Control.Monad.State.Strict (StateT, MonadState, evalStateT, get, put)
-import "monads-tf" Control.Monad.Trans (lift)
--}
 
 
 
@@ -194,12 +159,58 @@ prop_scriptFromSM_serials sm = forAll (scriptFromSM sm) $ and . zipWith (==) [(I
 
 -- * shrinking scripts
 
-shrinkScript :: forall sid content . SM sid content -> Script sid content -> [Script sid content]
-shrinkScript machine script = error "shrinkScript: not implemented"
+-- | Cut out cycles in the state machine's transition graph: If some
+-- state occurs more than once in the 'Script', drop all states
+-- starting with the first occurrance up to (and excluding) the
+-- second.  Implicitly calls 'dropDanglingReferences'.
+shrinkScriptSM :: forall sid content . (Eq sid, Eq content, Ord sid, Show sid, Show content)
+          => Script sid content -> [Script sid content]
+shrinkScriptSM = nub . fmap (dropDanglingReferences . Script) . (shrink' siThisState) . scriptItems
+
+shrink' :: forall i a . (Eq i, Ord i) => (a -> i) -> [a] -> [[a]]
+shrink' mki xs = map f $ shortcuts (mki <$> xs)
+  where
+    f :: (Int, Int) -> [a]
+    f (removeFrom, removeTo) =
+        case splitAt removeFrom xs of
+            (before, drop (removeTo - removeFrom) -> after) -> before ++ after
+
+shortcuts :: (Ord i) => [i] -> [(Int, Int)]
+shortcuts = join . map f . Map.elems . occurrances
+  where
+    f :: [Int] -> [(Int, Int)]
+    f xs = [(i, j) | i <- xs, j <- xs, j > i]
+
+occurrances :: (Ord i) => [i] -> Map i [Int]
+occurrances = Map.fromListWith (++) . zipWith (\ i x -> (x, [i])) [0..]
 
 
-transitionGraph :: forall sid content . (Eq sid, Show sid) => String -> Script sid content -> Int
-transitionGraph = error "transitionGraph: not implemented"
+
+-- * running SM-generated scripts
+
+
+
+  -- FIXME:
+  --
+  -- perhaps SM is not required as argument to checkScript.
+  --
+  -- write 'checkScript' in "Script" and pass it an invariant of type
+  -- @TraceItem -> Trace -> testable@.  checkScript would then test
+  -- this invariant in every step, and return a tuple of the final
+  -- trace and the testables.  Even better: add @Maybe testable@ to
+  -- all TraceItem constructors, and then the trace returned by
+  -- runScript leaves those Nothing, and checkScript fills them with
+  -- Justs.  'checkScript'' returns a property and can be used with
+  -- 'quickCheck'.  Even better: data ITrace = ITrace [(TraceItem, testable)].
+  --
+  -- 'checkScriptSM' then just takes a specialised invariant based on
+  -- state machines.  perhaps a mapping of stateIds to properties?
+  -- then it would be convenient to write a property that only checks
+  -- what happens in a certain state of particular interest.
+
+checkScriptSM :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
+          => RunScriptSetup sid content -> SM sid content -> Script sid content -> IO (Trace sid content)
+checkScriptSM (RunScriptSetup verbose rootPath extractPath) (SM states) (Script items) = error "checkScriptSM: not implemented."
 
 
 
@@ -283,6 +294,10 @@ mkScriptItemHTTP method body getparams postparams headers ref = ScriptItemHTTP
 -- ** Graph algorithms
 
 {-
+
+
+FIXME: these are deprecated and don't work with the new data types.  remove them all?
+
 
 -- | Keep the last state.  Find shortcuts in the earlier states that
 -- maintain the validity of the trace (e.g., replace @2->3->1@ by

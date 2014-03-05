@@ -53,7 +53,8 @@ import Safe
 import System.Directory
 import System.FilePath
 import Test.QuickCheck as QC
-import Test.QuickCheck.Store
+import Test.QuickCheck.Property as QC
+import Test.QuickCheck.Store as QC
 import Text.Printf
 import Text.Regex.Easy
 import Text.Show.Pretty
@@ -623,11 +624,19 @@ reduceRefsTraceBody root construct trace (Right c) =
 
 -- * interpreter
 
+data RunScriptSetup sid content =
+    RunScriptSetup
+      { runVerbose      :: Bool
+      , runRootPath     :: URI
+      , runExtractPath  :: TraceItem sid content -> Maybe URI
+      }
+
+
 -- | Run a 'Script' and return a 'Trace'.  Requests on paths missing
 -- due to earlier errors are skipped (response is 'Nothing').
 runScript :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
-          => Bool -> URI -> (TraceItem sid content -> Maybe URI) -> Script sid content -> IO (Trace sid content)
-runScript verbose rootPath constructPath (Script rs) = foldM f (Trace []) rs
+          => RunScriptSetup sid content -> Script sid content -> IO (Trace sid content)
+runScript (RunScriptSetup verbose rootPath extractPath) (Script items) = foldM f (Trace []) items
   where
     f :: Trace sid content -> ScriptItem sid content -> IO (Trace sid content)
     f trace rq@(ScriptItemHTTP serial _ _ method body getparams postparams headers pathref) = do
@@ -635,7 +644,7 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Trace []) rs
                         = case pathref of
                             Right (PathRef ix) ->
                               case getTraceItem trace ix of
-                                 Right item                     -> constructPath item
+                                 Right item                     -> extractPath item
                                  Left TraceErrorSerialNotFound  -> error $ "runScript: dangling pathref: " ++ ppShow (pathref, trace)
                                  Left (TraceErrorHTTP _)        -> Nothing
                                  Left (TraceErrorSkipped _)     -> Nothing
@@ -646,16 +655,26 @@ runScript verbose rootPath constructPath (Script rs) = foldM f (Trace []) rs
 
             case pathMay of
               Just path -> do
-                let body'       = reduceRefsTraceBody rootPath constructPath trace body
+                let body'       = reduceRefsTraceBody rootPath extractPath trace body
                     getparams'  = evl getparams
                     postparams' = evl postparams
                     headers'    = evl headers
-                    evl         = reduceRefsTraceAssoc rootPath constructPath trace
+                    evl         = reduceRefsTraceAssoc rootPath extractPath trace
 
                 response <- performReq verbose method path getparams' postparams' headers' body'
                 return $ trace <> Trace [TraceItemHTTP rq (Just response)]
               Nothing -> do
                 return $ trace <> Trace [TraceItemHTTP rq Nothing]
+
+
+-- | Transform a property of 'Trace's (which you usually would want to
+-- write) into a property of 'Script's (which are more
+-- straight-forward to run).  This also requires a setup object naming
+-- verbosity level, server coordinates, ...
+dynamicScriptProp :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
+          => (Trace sid content -> Property) -> RunScriptSetup sid content -> (Script sid content -> Property)
+dynamicScriptProp prop setup script =
+    QC.morallyDubiousIOProperty $ prop <$> runScript setup script
 
 
 
