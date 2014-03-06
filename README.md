@@ -23,10 +23,8 @@ installation
 This software is alpha, and every part of api and internals may keep
 changing arbitrarily for a while.
 
-You need https://github.com/zerobuzz/regex-easy, which is not
-available from hackage yet.  Apart from that, the usual
-git-clone-cabal-install should work on any system.  please open an
-issue if it does not.
+The usual git clone / cabal install should work.  Please open an issue
+if it does not.
 
 
 next steps
