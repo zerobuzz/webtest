@@ -65,7 +65,7 @@ library
     transformers >= 0.3,
     unordered-containers >= 0.2,
     vector >= 0.10,
-    webdriver >= 0.5 && < 0.5.3,
+    webdriver >= 0.5,
     transformers-base >= 0.4
 
   -- hs-source-dirs:
