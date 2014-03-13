@@ -1,3 +1,10 @@
+
+
+
+WARNING: master is obsolete and 0.2 is unstable.  usable code coming up soon.  please bear with us!
+
+
+
 webtest
 =======
 

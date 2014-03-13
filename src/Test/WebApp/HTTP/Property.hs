@@ -63,11 +63,11 @@ propFromToJSON v = if topLevel j
     topLevel _ = False
 
 
--- | Cereal serialization stability.  Note that 'JS.decode' only works on top-level.
+-- | Cereal serialization stability.
 propCereal :: (Eq a, Cereal.Serialize a) => a -> Bool
 propCereal x  = case Cereal.decode $ Cereal.encode x of
-                     Left _ -> False
-                     Right x' -> x == x'
+                  Left _ -> False
+                  Right x' -> x == x'
 
 
 -- | Check if server survives white HTTP noise without 5xx responses.
