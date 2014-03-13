@@ -39,23 +39,18 @@ next steps
 
 Things I hope to work on soon:
 
- 1. Module StaticMachines: support both HTTP and webdriver requests;
-    do not rely on types Script and Story from module HTTP.Story, but
-    write new analogous types that handle both HTTP and webdriver, so
-    that running and compiling to python works for both UI tests and
-    rest tests.
+ 1. Module StateMachines: support both HTTP and webdriver requests.
 
- 2. Deploy the free package to make implementation of types Script and
-    Story more concise and more well-behaved.
+ 2. Use the free package to make implementation of types Script and
+    Trace more concise and more well-behaved.
 
  3. Extend implicit testing DSL to an expressive power where
     properties can be translated to python like HTTP already can now.
     (This is not a rational requirement, but one that market forces
     generate: I want webtest to be able to generate comprehensive unit
     test suites so that it can be used as a tool in short-term
-    consulting missions in non-haskell projects.
+    consulting missions in non-haskell projects.)
 
  4. Use sunroof to compile to javascript; replace strings containing
     javascript code from the haskell codebase.
-
 
