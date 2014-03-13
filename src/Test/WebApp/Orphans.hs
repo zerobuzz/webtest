@@ -9,7 +9,9 @@
 
 {-| Some instances for types from other packages.  You can avoid any
 orphan problems by not importing this module, but instead copying the
-orphans you need into your own code. #-}
+orphans you need into your own code.  (A cleaner way would be to wrap
+all types that we need instances for with newtypes, that that would
+also be more tedious.)  -}
 module Test.WebApp.Orphans where
 
 import Control.Applicative
@@ -31,6 +33,7 @@ import qualified Data.Aeson as JS
 import qualified Data.Attoparsec.Number
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map hiding (Map)
+import qualified Data.Scientific
 import qualified Data.Serialize as Cereal
 import qualified Data.Vector as V
 import qualified Snap.Core as Snap
@@ -40,7 +43,7 @@ import Test.WebApp.Arbitrary
 
 -- * Arbitraries
 
-instance Arbitrary Data.Attoparsec.Number.Number where
+instance Arbitrary Data.Scientific.Scientific where
   arbitrary = arbitraryNumber 1000
   shrink = map fromRational . shrink . toRational
 
@@ -116,7 +119,7 @@ instance Arbitrary JS.Value where
 -- instances in this module.  Those that don't are defined in sibling
 -- module Arbitrary.)
 
-instance Fuzz Data.Attoparsec.Number.Number where
+instance Fuzz Data.Scientific.Scientific where
   fuzz b = frequency [(14, pure b), (3, arbitrary)]
 
 {-
