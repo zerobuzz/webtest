@@ -34,7 +34,7 @@ library
   -- other-extensions:
   build-depends:
     base >= 4.6 && < 5,
-    aeson >= 0.6,
+    aeson >= 0.7,
     aeson-pretty >= 0.7,
     attoparsec >= 0.11,
     bytestring >= 0.10,
@@ -47,7 +47,7 @@ library
     HTTP,
     language-dot,
     lifted-base >= 0.2,
-    MonadCatchIO-transformers >= 0.3 && < 0.4,
+    MonadCatchIO-transformers >= 0.3,
     monad-control >= 0.3,
     mtl >= 2.1,
     network >= 2.4,
