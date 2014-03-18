@@ -304,13 +304,13 @@ hijackBrowserConsole =
 
 -- | Download copy of browser logs.  This only works from the moment
 -- you call 'hijackBrowserConsole'.
-getBrowserConsole :: WD [[JS.Value]]
+getBrowserConsole :: WebDriver wd => wd [[JS.Value]]
 getBrowserConsole = evalJS [] ["return " <> jsscopeGet "__console__"]
 
 
 -- | Dump browser logs to stdout (in 'WD').  Only works from the
 -- moment you call 'hijackBrowserConsole'.
-printBrowserConsole :: WD ()
+printBrowserConsole :: (MonadIO wd, WebDriver wd) => wd ()
 printBrowserConsole = getBrowserConsole >>= liftIO . putStrLn . ppShow
 
 
