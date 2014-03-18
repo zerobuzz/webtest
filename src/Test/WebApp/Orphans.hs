@@ -30,7 +30,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Test.QuickCheck as Q
 
 import qualified Data.Aeson as JS
-import qualified Data.Attoparsec.Number
+-- import qualified Data.Attoparsec.Number
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Map as Map hiding (Map)
 import qualified Data.Scientific

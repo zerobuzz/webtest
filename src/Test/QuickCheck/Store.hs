@@ -59,11 +59,11 @@ import Data.Monoid
 import Data.Time
 import Data.Typeable
 import Safe
-import System.Cmd
 import System.Directory
 import System.Exit
 import System.FilePath
 import System.Locale
+import System.Process (system)
 import System.Time
 import Test.QuickCheck
 import Text.Printf
