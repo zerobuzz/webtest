@@ -116,6 +116,8 @@ data ScriptItem sid content =
 -}
   deriving (Show, Eq, Typeable, Generic)
 
+type ScriptItem' = ScriptItem Int JS.Value
+
 instance (Cereal.Serialize sid, Cereal.Serialize content)
     => Cereal.Serialize (ScriptItem sid content)
 
@@ -152,6 +154,8 @@ pathRef _ = Nothing
 -- may alternatingly increase and decrease over time).
 newtype Script sid content = Script { scriptItems :: [ScriptItem sid content] }
   deriving (Show, Eq, Typeable, Generic)
+
+type Script' = Script Int JS.Value
 
 instance (Cereal.Serialize sid, Cereal.Serialize content)
     => Cereal.Serialize (Script sid content)
