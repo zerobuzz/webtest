@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                webtest
-version:             0.2.0.1
+version:             0.2.0.2
 synopsis:            web application testing using quickcheck and state machines
 -- description:
 license:             AGPL-3
