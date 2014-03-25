@@ -24,6 +24,22 @@ import qualified Data.ByteString.Lazy as LBS
 
 
 
+-- | If request body is json, pretty-print it.
+prettyReqBody :: Request LBS -> Request LBS
+prettyReqBody r =
+    case JS.decode $ rqBody r of
+        (Just (v :: JS.Value)) -> r { rqBody = JS.encodePretty v }
+        Nothing -> r
+
+
+-- | If response body is json, pretty-print it.
+prettyRespBody :: Response LBS -> Response LBS
+prettyRespBody r =
+    case JS.decode $ rspBody r of
+        (Just (v :: JS.Value)) -> r { rspBody = JS.encodePretty v }
+        Nothing -> r
+
+
 -- | Cheating around 'Custom' constructor to get 'Enum' behavior.
 requestMethods :: [RequestMethod]
 requestMethods = [HEAD, PUT, GET, POST, DELETE, OPTIONS, TRACE, CONNECT]

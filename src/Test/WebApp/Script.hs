@@ -499,7 +499,7 @@ instance (Show sid, Show content) => Show (Trace sid content) where
       f :: (TraceItem sid content, Maybe Bool) -> String
       f (TraceItemHTTP rq rsp, check) = ">>>>>\n" <> ppShow rq <> "\n"
                  <> case rsp of
-                      Just rsp_ -> "<<<<<\n" <> show rsp_ <> "\n" <> cs (rspBody rsp_) <> "\n"
+                      Just rsp_ -> "<<<<<\n" <> show rsp_ <> "\n" <> (cs . rspBody . prettyRespBody $ rsp_) <> "\n"
                       Nothing -> "<<<<<\n(skipped)\n"
                  <> "<<<<<   [" <> show check <> "]\n"
 
