@@ -36,7 +36,6 @@ where
 
 import Control.Applicative
 import Control.Arrow
-import Control.Exception (assert)
 import Control.Monad hiding (mapM)
 import Data.Char
 import Data.Data
@@ -52,7 +51,7 @@ import Network.HTTP
 import Network.URI
 import Prelude hiding (mapM)
 import Safe
-import System.Directory
+import System.Directory hiding (canonicalizePath)
 import System.FilePath
 import Test.QuickCheck as QC
 import Test.QuickCheck.Store as QC
@@ -66,6 +65,7 @@ import qualified Data.ByteString as SBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as Cereal
 import qualified Data.Set as Set hiding (Set)
+import qualified Data.Text as ST
 
 import Test.QuickCheck.Missing
 import Test.WebApp.Arbitrary
@@ -132,6 +132,21 @@ instance Show Ix where
 instance Read Ix where
     readsPrec n s = case readsPrec n s of [(i, s)] -> [(Ix i, s)]
 
+-- | PathRef either refers to an 'Ix', or to a dedicated root URI (see
+-- below).
+data PathRef = PathRef Ix | PathRefRoot
+  deriving (Show, Eq, Ord, Typeable, Generic)
+
+instance Cereal.Serialize Ix
+instance Cereal.Serialize PathRef
+
+pathRef :: Either Path PathRef -> Maybe Ix
+pathRef (Right (PathRef x)) = Just x
+pathRef _ = Nothing
+
+
+-- ** paths
+
 newtype Path = Path { fromPath :: SBS }
   deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
 
@@ -150,17 +165,21 @@ instance JS.FromJSON Path where
 instance JS.ToJSON Path where
     toJSON (Path p) = JS.String $ cs p
 
--- | PathRef either refers to an 'Ix', or to a dedicated root URI (see
--- below).
-data PathRef = PathRef Ix | PathRefRoot
-  deriving (Show, Eq, Ord, Typeable, Generic)
+instance Monoid Path where
+    mappend s t = Path $ fromPath (canonicalizePath s) <> fromPath (canonicalizePath t)
+    mempty = Path "/"
 
-instance Cereal.Serialize Ix
-instance Cereal.Serialize PathRef
+canonicalizePath :: Path -> Path
+canonicalizePath = packPath . Prelude.filter (/= "") . unpackPath
 
-pathRef :: Either Path PathRef -> Maybe Ix
-pathRef (Right (PathRef x)) = Just x
-pathRef _ = Nothing
+parentOfPath :: Path -> Path
+parentOfPath = packPath . init . unpackPath . canonicalizePath
+
+packPath :: [SBS] -> Path
+packPath = Path . mconcat . ("/":) . intersperse "/"
+
+unpackPath :: Path -> [SBS]
+unpackPath = Prelude.map cs . ST.splitOn "/" . cs . fromPath
 
 
 
