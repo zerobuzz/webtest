@@ -175,7 +175,7 @@ example = do
 exampleProperty :: Int -> Bool
 exampleProperty = not . (> 10)
 
-main = example
+-- main = example
 
 
 
