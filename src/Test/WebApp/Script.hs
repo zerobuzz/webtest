@@ -801,11 +801,12 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
     ("data = " <> case either cs (cs . reduceRefsPy True ctx . JS.encodePretty) b of
                     "" -> "''"
                     s -> "json.dumps(" <> s <> ")") :
+    ("uri = " <> uri) :
     "print '====================================================================== [REQUEST]'" :
     "print '  method: ' + " <> mss :
-    "print '  uri: ' + " <> path :
+    "print '  uri: ' + uri" :
     "print '  data: ' + data" :
-    (resp <> " = requests." <> ms <> "(" <> path <> ", data=data, headers=" <> headers <> ")") :
+    (resp <> " = requests." <> ms <> "(uri, data=data, headers=" <> headers <> ")") :
     "print ''" :
     "" :
     "print '---------------------------------------------------------------------- [RESPONSE]'" :
@@ -828,12 +829,13 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
     rs  :: SBS = cs . show $ r
 
     resp :: SBS = "resp_" <> xs
-    path :: SBS = "uri_stem + " <> showRef r
+    uri :: SBS = "uri_stem + " <> showRef r
       where
         showRef :: Either Path PathRef -> SBS
         showRef (Right (PathRef i))  = "resp_" <> cs (show i) <> ".json()['path']"
-        showRef (Right PathRefRoot)  = "rootpath"
-        showRef (Left (Path path))   = cs $ show path
+        showRef (Right PathRefRoot)  = "uri_rootpath"
+        showRef (Left (Path path))   = "uri_rootpath + " <> cs (show (slash <> path))
+            where slash = if cs path =~# "^/" then "" else "/"
 
     headers :: SBS = cs . mconcat $
                   "{" :
@@ -849,7 +851,7 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
     reduceRefsPy :: Bool -> RefCtx -> LBS -> LBS
     reduceRefsPy quoted ctx = reduceRefs quoted ctx f
       where
-        f PathRefRoot = Just "rootpath"
+        f PathRefRoot = Just "uri_rootpath"
         f (PathRef i) = Just $ "resp_" <> cs (show i) <> ".json()['path']"
 
 
