@@ -104,7 +104,7 @@ quickCheckWithResultStore args prop = do
                 then return Nothing
                 else Just <$> quickCheckWithResult args{maxSuccess = 1}
                         (foldr1 (.&&.)
-                            (map (\ (file, t) -> printTestCase (label </> file ++ ": " ++ show t) (prop t))
+                            (map (\ (file, t) -> counterexample (label </> file ++ ": " ++ show t) (prop t))
                                 storedTestCases))
 
     -- FIXME: output should make it more explicit when unit tests are

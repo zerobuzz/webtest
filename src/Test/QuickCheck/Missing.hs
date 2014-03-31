@@ -31,5 +31,5 @@ mkprop b = True ==> b
 
 -- | (missing in quickcheck?)
 pending :: Property
-pending = printTestCase "(pending)" False
+pending = counterexample "(pending)" False
 

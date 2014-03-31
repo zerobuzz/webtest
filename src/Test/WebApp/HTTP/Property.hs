@@ -34,7 +34,6 @@ import Network.HTTP
 import Network.URI
 import Prelude hiding (mapM)
 import Test.QuickCheck as Q
-import Test.QuickCheck.Property
 
 import qualified Data.Aeson as JS
 import qualified Data.Serialize as Cereal
