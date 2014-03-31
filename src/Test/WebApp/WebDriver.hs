@@ -1,7 +1,11 @@
+{-# LANGUAGE DeriveFunctor                            #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving               #-}
+{-# LANGUAGE MultiParamTypeClasses                    #-}
 {-# LANGUAGE NoImplicitPrelude                        #-}
 {-# LANGUAGE OverloadedStrings                        #-}
 {-# LANGUAGE ScopedTypeVariables                      #-}
 {-# LANGUAGE TupleSections                            #-}
+{-# LANGUAGE TypeFamilies                             #-}
 {-# LANGUAGE ViewPatterns                             #-}
 
 {- OPTIONS -fwarn-unused-imports #-}
@@ -55,6 +59,97 @@ import qualified Data.Map as Map
 import qualified Data.Text as ST
 
 import Test.QuickCheck.Missing
+import Test.WebApp.Script
+import Test.WebApp.StateMachines
+
+
+
+-- * docks
+
+
+
+import Test.WebDriver.Monad
+import Test.WebDriver.Classes
+
+import Control.Monad.Base (MonadBase, liftBase)
+import Control.Monad (liftM)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Control -- (MonadBaseControl(..), StM)
+import Control.Monad.State.Strict -- (StateT, MonadState, evalStateT, get, put, modify)
+import Control.Monad.IO.Class (MonadIO)
+-- import Control.Exception.Lifted
+import Control.Monad.CatchIO (MonadCatchIO)
+import Control.Applicative
+
+
+
+-- | A freely monadic variant of 'WD'.
+newtype WDF a = WDF { unWDF :: StateT (Script', WDSession) IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, MonadCatchIO)
+
+instance MonadBase IO WDF where
+  liftBase = WDF . liftBase
+
+instance MonadBaseControl IO WDF where
+  data StM WDF a = StWDF {unStWDF :: StM (StateT (Script', WDSession) IO) a}
+
+  liftBaseWith f = WDF $
+    liftBaseWith $ \runInBase ->
+    f (\(WDF sT) -> liftM StWDF . runInBase $ sT)
+
+  restoreM = WDF . restoreM . unStWDF
+
+instance SessionState WDF where
+  getSession = snd <$> WDF get
+  putSession session' = WDF $ modify (\ (script, session) -> (script, session'))
+
+instance WebDriver WDF where
+    doCommand method path args = do
+
+        -- update script item
+        WDF $ modify (first (<> Script
+                                [ let body = Left ""
+                                      getparams = []
+                                      postparams = []
+                                      headers = []
+                                      ref = Right PathRefRoot
+                                  in mkScriptItemHTTP method body getparams postparams headers ref
+                                ]))
+
+        let JS.Success v = JS.fromJSON JS.Null
+
+        -- FIXME: eventually, i want to add something like this here:
+        --
+        -- > doCommand method path args :: WD a
+        --
+        -- but first, i want to figure out why without it, there is
+        -- still access to WDSession in the test function below.  as
+        -- long as we don't require a valid WDSession inside this
+        -- function, it should be possible to call runWDF without a
+        -- one.
+        --
+        -- right: WD must be detached from SessionState, or it will
+        -- always - wait, what will it do?
+
+        return v
+
+
+runWDF :: WDSession -> WDF a -> IO Script'
+runWDF session (WDF st) = fst . snd <$> runStateT st (Script [], session)
+
+
+test :: IO ()
+test = do
+    let wdf :: WDF JS.Value = do
+          hijackBrowserConsole
+          getBrowserConsole
+          return JS.Null
+
+    v <- runWDF defaultSession wdf
+    print v
+
+
+
 
 
 
