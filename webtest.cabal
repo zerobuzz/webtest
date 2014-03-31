@@ -55,7 +55,7 @@ library
     old-time >= 1.1,
     pretty-show >= 1.6,
     process >= 1.1,
-    QuickCheck >= 2.6,
+    QuickCheck >= 2.7,
     regex-easy == 0.1.*,
     safe >= 0.3,
     scientific >= 0.2,

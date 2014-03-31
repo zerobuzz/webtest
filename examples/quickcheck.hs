@@ -90,7 +90,7 @@ instance Arbitrary CutArray where
 
 -- | the quickcheck property
 prop_cutArray :: WDSession -> CutArray -> QC.Property
-prop_cutArray session = morallyDubiousIOProperty . runWD session . wd_cutArray
+prop_cutArray session = ioProperty . runWD session . wd_cutArray
 
 
 -- | the underlying property in the web driver monad.

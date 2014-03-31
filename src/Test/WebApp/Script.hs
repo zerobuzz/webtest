@@ -700,7 +700,7 @@ runScript (RunScriptSetup verbose rootPath extractPath) (Script items) =
 dynamicScriptProp :: forall sid content . (Show sid, Show content, JS.FromJSON content, JS.ToJSON content)
           => (Trace sid content -> Property) -> RunScriptSetup sid content -> (Script sid content -> Property)
 dynamicScriptProp prop setup script =
-    QC.morallyDubiousIOProperty $ prop <$> runScript setup script
+    QC.ioProperty $ prop <$> runScript setup script
 
 
 -- FIXME: dynamicScriptProp'?  (it acts to runScript' as
