@@ -853,7 +853,7 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
         showRef :: Either Path PathRef -> SBS
         showRef (Right (PathRef i))  = "resp_" <> cs (show i) <> ".json()['path']"
         showRef (Right PathRefRoot)  = "uri_rootpath"
-        showRef (Left (Path path))   = "uri_rootpath + " <> cs (show (slash <> path))
+        showRef (Left (Path path))   = cs . show $ slash <> path
             where slash = if cs path =~# "^/" then "" else "/"
 
     headers :: SBS = cs . mconcat $
