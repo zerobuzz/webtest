@@ -33,7 +33,6 @@ import Data.String.Conversions
 import Data.Typeable
 import Language.Dot as D
 import Network.HTTP
-import Network.URI
 import Prelude hiding ((++))
 import Test.QuickCheck as QC
 import Text.Show.Pretty
@@ -271,7 +270,7 @@ scriptToDot name machine script@(Script (_:_)) = D.Graph D.UnstrictGraph D.Direc
 -- 'scriptFromSM'.
 mkScriptItemHTTP :: RequestMethod -> Either SBS content
                  -> [(SBS, SBS)] -> [(SBS, SBS)] -> [(SBS, SBS)]
-                 -> Either URI PathRef
+                 -> Either Path PathRef
                  -> ScriptItem sid content
 mkScriptItemHTTP method body getparams postparams headers ref = ScriptItemHTTP
         { siSerial       = Ix (-1)

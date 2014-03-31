@@ -53,7 +53,6 @@ import Safe
 import System.Directory
 import System.FilePath
 import Test.QuickCheck as QC
-import Test.QuickCheck.Property as QC
 import Test.QuickCheck.Store as QC
 import Text.Printf
 import Text.Regex.Easy
@@ -82,9 +81,9 @@ import Test.WebApp.Orphans ()
 --
 -- HTTP: For convenience, the body may be stored in a typed way, and
 -- will be serialized using 'ToJSON', but it is also possible to write
--- requests with arbitrarily broken bodies.  The path is either a
--- 'URI', or a reference that is passed to a path constructor function
--- (see below).
+-- requests with arbitrarily broken bodies.  The path is either a path
+-- string, or a reference that is passed to a path constructor
+-- function (see below).
 --
 -- For instance, you may reference an earlier @POST@ request, retrieve
 -- the path of an object that has been stored, and use that path in a
@@ -106,7 +105,7 @@ data ScriptItem sid content =
         , siGetParams    :: [(SBS, SBS)]
         , siPostParams   :: [(SBS, SBS)]
         , siHeaders      :: [(SBS, SBS)]
-        , siHTTPPath     :: Either URI PathRef
+        , siHTTPPath     :: Either Path PathRef
         }
 {-
     | ScriptItemDWD
@@ -131,7 +130,25 @@ instance Show Ix where
 instance Read Ix where
     readsPrec n s = case readsPrec n s of [(i, s)] -> [(Ix i, s)]
 
--- | PathRef either refers to an 'Ix', or to a dedicated root 'URI' (see
+newtype Path = Path { fromPath :: SBS }
+  deriving (Show, Read, Eq, Ord, Data, Typeable, Generic)
+
+instance Cereal.Serialize Path
+
+instance Arbitrary Path where
+    arbitrary = Path <$> arbitrary
+    shrink (Path p) = Path <$> shrink p
+
+instance Fuzz Path where
+    fuzz (Path p) = Path <$> fuzz p
+
+instance JS.FromJSON Path where
+    parseJSON (JS.String s) = return . Path $ cs s
+
+instance JS.ToJSON Path where
+    toJSON (Path p) = JS.String $ cs p
+
+-- | PathRef either refers to an 'Ix', or to a dedicated root URI (see
 -- below).
 data PathRef = PathRef Ix | PathRefRoot
   deriving (Show, Eq, Ord, Typeable, Generic)
@@ -139,7 +156,7 @@ data PathRef = PathRef Ix | PathRefRoot
 instance Cereal.Serialize Ix
 instance Cereal.Serialize PathRef
 
-pathRef :: Either URI PathRef -> Maybe Ix
+pathRef :: Either Path PathRef -> Maybe Ix
 pathRef (Right (PathRef x)) = Just x
 pathRef _ = Nothing
 
@@ -591,34 +608,31 @@ scriptRefToSBS True  (PathRef i) = "\"___SCRIPT_REF___" <> cs (show i) <> "\""
 -- | Dynamic 'reduceRefs', as needed for 'runScript''.  (See 'reduceRefsPy'
 -- for a static variant.)
 reduceRefsTrace :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
-         => Bool -> URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
+         => Bool -> Path -> (TraceItem sid content -> Maybe Path) -> Trace sid content
          -> SBS -> SBS
-reduceRefsTrace quoted rootPath constructPath trace = cs . reduceRefs quoted ctx (fmap (qu . ru) . lu) . cs
+reduceRefsTrace quoted rootPath constructPath trace = cs . reduceRefs quoted ctx (fmap qu . lu) . cs
   where
     script :: Script sid content  = Script . map (tiScriptItem . fst) $ traceItems trace
     ctx    :: RefCtx              = scriptContext script
 
-    lu :: PathRef -> Maybe URI   -- lookup xref
+    lu :: PathRef -> Maybe Path   -- lookup xref
     lu PathRefRoot = Just rootPath
     lu (PathRef i) = case filter ((== i) . siSerial . tiScriptItem . fst) $ traceItems trace of
                      [fst -> item] -> constructPath item
 
-    ru :: URI -> LBS     -- render uri
-    ru = cs . uriPath
-
-    qu :: LBS -> LBS     -- re-quote (if applicable)
-    qu = if quoted then cs . show else id
+    qu :: Path -> LBS     -- re-quote (if applicable)
+    qu = cs . (if quoted then show else cs) . fromPath
 
 
 reduceRefsTraceAssoc :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
-         => URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
+         => Path -> (TraceItem sid content -> Maybe Path) -> Trace sid content
          -> [(SBS, SBS)] -> [(SBS, SBS)]
 reduceRefsTraceAssoc root construct trace = map (first f . second f)
   where f = reduceRefsTrace False root construct trace
 
 
 reduceRefsTraceBody :: forall sid content . (Show content, JS.FromJSON content, JS.ToJSON content)
-         => URI -> (TraceItem sid content -> Maybe URI) -> Trace sid content
+         => Path -> (TraceItem sid content -> Maybe Path) -> Trace sid content
          -> Either SBS content -> Either SBS content
 reduceRefsTraceBody root construct trace (Left s) =
     Left (reduceRefsTrace True root construct trace s)
@@ -632,9 +646,18 @@ reduceRefsTraceBody root construct trace (Right c) =
 data RunScriptSetup sid content =
     RunScriptSetup
       { runVerbose      :: Bool
-      , runRootPath     :: URI
-      , runExtractPath  :: TraceItem sid content -> Maybe URI
+      , runRootURI      :: URI
+      , runExtractPath  :: TraceItem sid content -> Maybe Path
       }
+
+
+runScriptMkURI :: RunScriptSetup sid content -> Path -> URI
+runScriptMkURI setup (Path path) = root'
+  where
+    root = runRootURI setup
+    path = uriPath root
+    path' = path <> cs path
+    root' = root { uriPath = path'}
 
 
 -- | Run a 'Script' and return a 'Trace'.  For every 'TraceItem', a
@@ -647,26 +670,27 @@ runScript' :: forall sid content . (Show sid, Show content, JS.FromJSON content,
           -> Script sid content
           -> (TraceItem sid content -> Trace sid content -> Maybe Bool)
           -> IO (Trace sid content)
-runScript' (RunScriptSetup verbose rootPath extractPath) (Script items) test = foldM f (Trace []) items
+runScript' setup@(RunScriptSetup verbose rootURI extractPath) (Script items) test = foldM f (Trace []) items
   where
     f :: Trace sid content -> ScriptItem sid content -> IO (Trace sid content)
-    f trace rq@(ScriptItemHTTP serial _ _ method body getparams postparams headers pathref) = do
+    f trace rq@(ScriptItemHTTP _ _ _ method body getparams postparams headers pathref) = do
             let pathMay :: Maybe URI
                         = case pathref of
                             Right (PathRef ix) ->
                               case getTraceItem trace ix of
-                                 Right item                     -> extractPath item
+                                 Right item                     -> runScriptMkURI setup <$> extractPath item
                                  Left TraceErrorSerialNotFound  -> error $ "runScript': dangling pathref: " ++ ppShow (pathref, trace)
                                  Left (TraceErrorHTTP _)        -> Nothing
                                  Left (TraceErrorSkipped _)     -> Nothing
                             Right PathRefRoot ->
-                              Just rootPath
-                            Left uri ->
-                              Just uri
+                              Just rootURI
+                            Left path ->
+                              Just $ runScriptMkURI setup path
 
             case pathMay of
               Just path -> do
-                let body'       = reduceRefsTraceBody rootPath extractPath trace body
+                let rootPath    = Path . cs . uriPath $ rootURI
+                    body'       = reduceRefsTraceBody rootPath extractPath trace body
                     getparams'  = evl getparams
                     postparams' = evl postparams
                     headers'    = evl headers
@@ -711,11 +735,13 @@ dynamicScriptProp prop setup script =
 
 -- * Compile to python
 
-scriptToPyFile :: (JS.ToJSON content, Show content) => Script sid content -> FilePath -> IO ()
-scriptToPyFile script filepath = SBS.writeFile filepath . SBS.intercalate "\n" . scriptToPySBS $ script
+scriptToPyFile :: (Show sid, Show content, JS.ToJSON content)
+               => RunScriptSetup sid content -> Script sid content -> FilePath -> IO ()
+scriptToPyFile setup script filepath = SBS.writeFile filepath . SBS.intercalate "\n" $ scriptToPySBS setup script
 
-scriptToPySBS :: (JS.ToJSON content, Show content) => Script sid content -> [SBS]
-scriptToPySBS (Script rqs) = pyHeader ++ rqs' ++ ["", "print 'success!'", ""]
+scriptToPySBS :: (Show sid, Show content, JS.ToJSON content)
+              => RunScriptSetup sid content -> Script sid content -> [SBS]
+scriptToPySBS setup (Script rqs) = pyHeader setup ++ rqs' ++ ["", "print 'success!'", ""]
   where
     rqs' :: [SBS]
     rqs' = concatMap (uncurry scriptItemToPy) $ zip ctxs rqs
@@ -723,8 +749,8 @@ scriptToPySBS (Script rqs) = pyHeader ++ rqs' ++ ["", "print 'success!'", ""]
     ctxs :: [RefCtx]
     ctxs = map (scriptContext . Script) $ inits rqs
 
-pyHeader :: [SBS]
-pyHeader =
+pyHeader :: RunScriptSetup sid content -> [SBS]
+pyHeader setup =
     "#!/usr/bin/python" :
     "# -*- encoding: utf-8 -*-" :
     "" :
@@ -732,12 +758,17 @@ pyHeader =
     "import json" :
     "import requests" :
     "" :
+    "uri_rootpath = " <> (cs . show . uriPath . runRootURI $ setup) :
+    "uri_stem = " <> (cs . show . show $ (runRootURI setup) { uriPath = "" }) :
     "null = None  # for more javascript-ish json representation" :
     "" :
     []
 
 -- | FIXME: get params and put params are not supported.
-scriptItemToPy :: (JS.ToJSON content) => RefCtx -> ScriptItem sid content -> [SBS]
+scriptItemToPy :: (Show sid, Show content, JS.ToJSON content)
+               => RefCtx -> ScriptItem sid content -> [SBS]
+scriptItemToPy _ scriptItem@(ScriptItemHTTP (Ix x) _ _ _ _ _ _ _ _) | x < 0 =
+    error $ "scriptItemToPy: invalid serial number in item: " ++ show scriptItem
 scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
     ("data = " <> case either cs (cs . reduceRefsPy True ctx . JS.encodePretty) b of
                     "" -> "''"
@@ -769,13 +800,12 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
     rs  :: SBS = cs . show $ r
 
     resp :: SBS = "resp_" <> xs
-
-    showRef :: Either URI PathRef -> SBS
-    showRef (Right (PathRef i))  = "resp_" <> cs (show i) <> ".json()['path']"
-    showRef (Right PathRefRoot)  = "rootpath"
-    showRef (Left uri)         = cs $ show uri
-
-    path :: SBS = "server + " <> showRef r
+    path :: SBS = "uri_stem + " <> showRef r
+      where
+        showRef :: Either Path PathRef -> SBS
+        showRef (Right (PathRef i))  = "resp_" <> cs (show i) <> ".json()['path']"
+        showRef (Right PathRefRoot)  = "rootpath"
+        showRef (Left (Path path))   = cs $ show path
 
     headers :: SBS = cs . mconcat $
                   "{" :
@@ -811,19 +841,18 @@ readStore toScript = do
 -- compile all test cases of that type into Haskell and Python.
 compileStore :: forall a sid content . (Show a, Typeable a, Cereal.Serialize a,
                                         Show sid, Show content, JS.ToJSON content)
-        => (a -> Script sid content) -> IO ()
-compileStore toScript = readStore toScript >>= mapM_ (compileTestCase toScript)
+        => RunScriptSetup sid content -> (a -> Script sid content) -> IO ()
+compileStore setup toScript = readStore toScript >>= mapM_ (compileTestCase setup)
 
 
 -- | Test cases that are newtype-wrapped 'Script's can be compiled to
 -- both Haskell data (for inspection and modification) and python (for
 -- convenience and inclusion in external test workflows).
-compileTestCase :: forall a sid content . (Show a, Typeable a, Cereal.Serialize a,
-                                           Show sid, Show content, JS.ToJSON content)
-        => (a -> Script sid content) -> (FilePath, Script sid content) -> IO ()
-compileTestCase _ (filename, testData) = do
+compileTestCase :: forall sid content . (Show sid, Show content, JS.ToJSON content)
+        => RunScriptSetup sid content -> (FilePath, Script sid content) -> IO ()
+compileTestCase setup (filename, testData) = do
     writeFile (dropExtension filename <.> "hs") $ ppShow testData
-    scriptToPyFile testData (dropExtension filename <.> "py")
+    scriptToPyFile setup testData (dropExtension filename <.> "py")
 
 
 
