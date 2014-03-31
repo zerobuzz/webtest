@@ -4,6 +4,7 @@
 {-# LANGUAGE InstanceSigs                             #-}
 {-# LANGUAGE NoImplicitPrelude                        #-}
 {-# LANGUAGE OverloadedStrings                        #-}
+{-# LANGUAGE RecordWildCards                          #-}
 {-# LANGUAGE ScopedTypeVariables                      #-}
 {-# LANGUAGE TupleSections                            #-}
 {-# LANGUAGE ViewPatterns                             #-}
@@ -35,6 +36,7 @@ where
 
 import Control.Applicative
 import Control.Arrow
+import Control.Exception (assert)
 import Control.Monad hiding (mapM)
 import Data.Char
 import Data.Data
@@ -178,10 +180,9 @@ instance (Cereal.Serialize sid, Cereal.Serialize content)
     => Cereal.Serialize (Script sid content)
 
 -- | In script concatenation, no sanitation of serial numbers or
--- pathrefs is taking place.  (FIXME: this should either crash on
--- unsound concatenations or sanitize them where possible.)
+-- pathrefs is taking place.
 instance Monoid (Script sid content) where
-  mappend (Script xs) (Script ys) = Script $ xs ++ ys
+  mappend xs ys = Script $ scriptItems xs ++ (scriptItems $ shiftSerials xs ys)
   mempty = Script []
 
 
@@ -207,15 +208,6 @@ nextIx = Ix . (+1) . fromIx
 
 nextIxCtx :: RefCtx -> Ix
 nextIxCtx (RefCtx serials _ _) = Ix . maybe 0 ((+1) . fst) . Set.maxView . Set.map fromIx $ serials
-
-mapSerials :: forall sid content . (Ix -> Ix) -> (Script sid content) -> (Script sid content)
-mapSerials f (Script rqs) = Script $ map q rqs
-  where
-    q :: ScriptItem sid content -> ScriptItem sid content
-    q rq = rq { siHTTPPath = case siHTTPPath rq of
-                            x@(Left e) -> x
-                            x@(Right PathRefRoot) -> x
-                            (Right (PathRef r)) -> Right (PathRef $ f r) }
 
 -- | Parse body from lines of json code.
 readReqBody :: JS.FromJSON content => [LBS] -> Either SBS content
@@ -245,6 +237,42 @@ sanitizeScriptItem r@(ScriptItemHTTP _ _ _ _ b _ _ _ _) = r { siBody = sanitizeS
 sanitizeScriptItemContent :: JS.FromJSON content => Either SBS content -> Either SBS content
 sanitizeScriptItemContent (Right c) = Right c
 sanitizeScriptItemContent (Left s) = maybe (Left s) (Right) . JS.decode $ cs s
+
+
+-- ** managing serial numbers
+
+-- | Create unique serial numbers.  If there are any non-trivial
+-- references, they are probably broken, and this function will crash.
+initSerials :: forall sid content . (Script sid content) -> (Script sid content)
+initSerials (Script is) = Script $ zipWith f [0..] is
+  where
+    f x i@(ScriptItemHTTP {..}) =
+        case siHTTPPath of
+            Right (PathRef _) -> error $ "initSerials: cannot handle non-trivial path references."
+            _ -> i { siSerial = Ix x }
+
+
+-- | Shift serial numbers in script @suffix@ out of reach of another
+-- script @prefix@.  Crash if either script has negative serial numbers.
+shiftSerials :: forall sid content . (Script sid content) -> (Script sid content) -> (Script sid content)
+shiftSerials prefix suffix | all (>= Ix 0) allSerials = mapSerials f suffix
+  where
+    allSerials = map siSerial . join $ map scriptItems [prefix, suffix]
+    f (Ix i) = Ix $ i + (maximum (map (fromIx . siSerial) $ scriptItems prefix))
+
+
+-- | Run a bijection over all serial numbers and references in a
+-- 'Script'.
+mapSerials :: forall sid content . (Ix -> Ix) -> (Script sid content) -> (Script sid content)
+mapSerials bij (Script rqs) = Script $ map q rqs
+  where
+    q :: ScriptItem sid content -> ScriptItem sid content
+    q rq = rq { siSerial = bij $ siSerial rq
+              , siHTTPPath = case siHTTPPath rq of
+                            x@(Left e) -> x
+                            x@(Right PathRefRoot) -> x
+                            (Right (PathRef r)) -> Right (PathRef $ bij r)
+              }
 
 
 -- ** Arbitrary scripts
