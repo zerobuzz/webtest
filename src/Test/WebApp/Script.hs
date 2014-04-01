@@ -698,15 +698,6 @@ data RunScriptSetup sid content =
       }
 
 
-runScriptMkURI :: RunScriptSetup sid content -> Path -> URI
-runScriptMkURI setup (Path path) = root'
-  where
-    root = runRootURI setup
-    path = uriPath root
-    path' = path <> cs path
-    root' = root { uriPath = path'}
-
-
 -- | Run a 'Script' and return a 'Trace'.  For every 'TraceItem', a
 -- boolean test outcome is computed from it and the 'Trace' history,
 -- and associated with the 'TraceItem' in the new history.  Requests
@@ -733,6 +724,9 @@ runScript' setup@(RunScriptSetup verbose rootURI extractPath) (Script items) tes
                               Just rootURI
                             Left path ->
                               Just $ runScriptMkURI setup path
+
+                runScriptMkURI :: RunScriptSetup sid content -> Path -> URI
+                runScriptMkURI setup (Path path) =
 
             case pathMay of
               Just path -> do
