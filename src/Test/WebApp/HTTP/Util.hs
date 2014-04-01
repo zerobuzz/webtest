@@ -24,11 +24,16 @@ import qualified Data.ByteString.Lazy as LBS
 
 
 
+-- | 'encodePretty' with more reasonable defaults.
+prettyJS :: JS.ToJSON a => a -> LBS
+prettyJS = JS.encodePretty' (JS.defConfig { JS.confCompare = compare })
+
+
 -- | If request body is json, pretty-print it.
 prettyReqBody :: Request LBS -> Request LBS
 prettyReqBody r =
     case JS.decode $ rqBody r of
-        (Just (v :: JS.Value)) -> r { rqBody = JS.encodePretty v }
+        (Just (v :: JS.Value)) -> r { rqBody = prettyJS v }
         Nothing -> r
 
 
@@ -36,7 +41,7 @@ prettyReqBody r =
 prettyRespBody :: Response LBS -> Response LBS
 prettyRespBody r =
     case JS.decode $ rspBody r of
-        (Just (v :: JS.Value)) -> r { rspBody = JS.encodePretty v }
+        (Just (v :: JS.Value)) -> r { rspBody = prettyJS v }
         Nothing -> r
 
 

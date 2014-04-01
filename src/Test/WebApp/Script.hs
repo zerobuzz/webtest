@@ -60,7 +60,6 @@ import Text.Regex.Easy
 import Text.Show.Pretty
 
 import qualified Data.Aeson as JS
-import qualified Data.Aeson.Encode.Pretty as JS
 import qualified Data.ByteString as SBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as Cereal
@@ -811,7 +810,7 @@ scriptItemToPy :: (Show sid, Show content, JS.ToJSON content)
 scriptItemToPy _ scriptItem@(ScriptItemHTTP (Ix x) _ _ _ _ _ _ _ _) | x < 0 =
     error $ "scriptItemToPy: invalid serial number in item: " ++ show scriptItem
 scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
-    ("data = " <> case either cs (cs . reduceRefsPy True ctx . JS.encodePretty) b of
+    ("data = " <> case either cs (cs . reduceRefsPy True ctx . prettyJS) b of
                     "" -> "''"
                     s -> "json.dumps(" <> s <> ")") :
     ("uri = " <> uri) :
