@@ -726,7 +726,7 @@ runScript' setup@(RunScriptSetup verbose rootURI extractPath) (Script items) tes
                               Just $ runScriptMkURI setup path
 
                 runScriptMkURI :: RunScriptSetup sid content -> Path -> URI
-                runScriptMkURI setup (Path path) =
+                runScriptMkURI setup (Path path) = (runRootURI setup) { uriPath = cs path }
 
             case pathMay of
               Just path -> do
