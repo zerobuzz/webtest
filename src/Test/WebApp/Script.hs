@@ -810,25 +810,25 @@ scriptItemToPy :: (Show sid, Show content, JS.ToJSON content)
 scriptItemToPy _ scriptItem@(ScriptItemHTTP (Ix x) _ _ _ _ _ _ _ _) | x < 0 =
     error $ "scriptItemToPy: invalid serial number in item: " ++ show scriptItem
 scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
-    ("data = " <> case either cs (cs . reduceRefsPy True ctx . prettyJS) b of
-                    "" -> "''"
-                    s -> "json.dumps(" <> s <> ")") :
-    ("uri = " <> uri) :
+    ("uri  = " <> uri) :
+    ("hdrs = " <> headers) :
+    ("body = " <> dta) :
+    "hdrs['content-type'] = 'application/json'" :
+    "hdrs['content-length'] = len(body)" :
     "print '====================================================================== [REQUEST]'" :
     "print '  method: ' + " <> mss :
-    "print '  uri: ' + uri" :
-    "print '  data: ' + data" :
-    (resp <> " = requests." <> ms <> "(uri, data=data, headers=" <> headers <> ")") :
+    "print '  uri:    ' + uri" :
+    "print '  hdrs:   ' + json.dumps(hdrs)" :
+    "print '  body:   ' + body" :
+    (resp <> " = requests." <> ms <> "(uri, headers=hdrs, data=body)") :
     "print ''" :
-    "" :
     "print '---------------------------------------------------------------------- [RESPONSE]'" :
     "print '  code: ' + str(" <> resp <> ".status_code)" :
     "if " <> resp <> ".status_code == 200:" :
-    "    print '  data: ' + json.dumps(" <> resp <> ".json())" :
+    "    print '  body: ' + json.dumps(" <> resp <> ".json())" :
     "    print ''" :
-    "" :
     "else:" :
-    "    print '  data: ' + " <> resp <> ".text" :
+    "    print '  body: ' + " <> resp <> ".text" :
     "    print ''" :
     "    print 'giving up!'" :
     "    exit(1)" :
@@ -849,6 +849,22 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
         showRef (Left (Path path))   = cs . show $ slash <> path
             where slash = if cs path =~# "^/" then "" else "/"
 
+    dta :: SBS = case either cs (cs . reduceRefsPy True ctx . prettyJS) b of
+                    "" -> "''"
+                    s -> "json.dumps(" <> s <> ")"
+
+    headers :: SBS
+    headers = cs . prettyJS . JS.object $ renderHeaders hs
+      where
+        renderHeaders = map (first cs . second (JS.toJSON . (cs :: LBS -> ST) . reduceRefsPy False ctx . cs))
+
+{-
+        defaultHeaders = ("content-type", JS.toJSON ("text/json" :: ST)) :
+                         ("content-length", JS.toJSON $ SBS.length dta) :
+                         []
+
+
+
     headers :: SBS = cs . mconcat $
                   "{" :
                   "'content-type': 'text/json'," :
@@ -859,6 +875,11 @@ scriptItemToPy ctx (ScriptItemHTTP x _ _ m b [] [] hs r) =
         render :: (SBS, SBS) -> SBS
         render (k, v) | not ('\'' `elem` cs (k <> v) || '\\' `elem` cs (k <> v))
             = "    '" <> k <> "': " <> (cs . reduceRefsPy False ctx . cs $ v) <> ","
+
+-}
+
+
+
 
     reduceRefsPy :: Bool -> RefCtx -> LBS -> LBS
     reduceRefsPy quoted ctx = reduceRefs quoted ctx f
