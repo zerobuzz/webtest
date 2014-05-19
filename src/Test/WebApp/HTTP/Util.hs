@@ -120,24 +120,24 @@ performReqEmptyBody verbose method path getps postps headers =
     performReq verbose method path getps postps headers (Left "" :: Either SBS JS.Value)
 
 
-processResponse :: JS.FromJSON v => Bool -> Response LBS -> Maybe v
+processResponse :: JS.FromJSON v => Bool -> Response LBS -> Either String v
 processResponse verbose_ response =
     case rspCode response of
-          (2, _, _) -> JS.decode . cs . rspBody $ response
-          code      -> Nothing
+          (2, _, _) -> JS.eitherDecode . cs . rspBody $ response
+          code      -> Left $ "HTTP error: " ++ show code
 
 
 -- | Process response, force response code 2xx and remove 'Maybe' wrapper.
 forceResponse :: JS.FromJSON v => Bool -> Response LBS -> v
 forceResponse verbose_ response =
-    maybe (error "giving up") id $ processResponse verbose_ response
+    either error id $ processResponse verbose_ response
 
 
 -- | Process response, force response code 2xx and drop result entirely.
 assertResponse :: Bool -> Response LBS -> ()
 assertResponse verbose_ response =
-    maybe (error "giving up") (const ()) $
-      (processResponse verbose_ response :: Maybe JS.Value)
+    either error (const ()) $
+      (processResponse verbose_ response :: Either String JS.Value)
 
 
 -- | Process response, force response code /= 2xx and drop result
@@ -145,5 +145,5 @@ assertResponse verbose_ response =
 -- error that we can process here.)
 assertError :: Bool -> Response LBS -> ()
 assertError verbose_ response =
-    maybe () (const $ error "giving up") $
-      (processResponse verbose_ response :: Maybe JS.Value)
+    either (const ()) (const $ error "HTTP error expected!") $
+      (processResponse verbose_ response :: Either String JS.Value)
