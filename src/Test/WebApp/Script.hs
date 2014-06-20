@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable                       #-}
 {-# LANGUAGE DeriveGeneric                            #-}
+{-# LANGUAGE FlexibleContexts                         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving               #-}
 {-# LANGUAGE InstanceSigs                             #-}
 {-# LANGUAGE NoImplicitPrelude                        #-}
@@ -108,15 +109,32 @@ data ScriptItem sid content =
         , siHeaders      :: [(SBS, SBS)]
         , siHTTPPath     :: Either Path PathRef
         }
-{-
-    | ScriptItemDWD
-        { siSerial       :: Ix
-        , siDWD          :: (MonadIO wd, WebDriver wd) => wd (Either Element content)
-        }
--}
   deriving (Show, Eq, Typeable, Generic)
 
 type ScriptItem' = ScriptItem Int JS.Value
+
+-- | Convert an ordinery HTTP request from the HTTP package into a
+-- 'ScriptItem'.  (For 'Trace' consruction.)  Only uses path, not
+-- scheme/authority/host/... from 'URI' type.
+--
+-- FIXME: must parse path and extract get, post params.
+httpRequestToScriptItem :: (ConvertibleStrings a SBS) => Ix -> Request a -> ScriptItem Int JS.Value
+httpRequestToScriptItem ix req =
+      ScriptItemHTTP
+        { siSerial       = ix
+        , siFromState    = Nothing
+        , siThisState    = Nothing
+        , siMethod       = rqMethod req
+        , siBody         = Left . cs . rqBody $ req
+        , siGetParams    = []  -- rqURI req ...
+        , siPostParams   = []  -- rqURI req ...
+        , siHeaders      = [ (cs $ show k, cs v) | (Header k v) <- rqHeaders req ]
+        , siHTTPPath     = Left . Path . cs . uriPath . rqURI $ req
+        }
+
+-- TODO: clean up HTTP, URI
+--   - relative constructor for URI  (or use package uri, not network)  (network.Network.URI.uriQuery might be good for this?)
+--   - proper Show instances for Request, Response
 
 instance (Cereal.Serialize sid, Cereal.Serialize content)
     => Cereal.Serialize (ScriptItem sid content)
