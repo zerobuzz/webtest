@@ -105,8 +105,9 @@ data XPathQualify =
   | XPathTextEq ST
   deriving (Eq, Show, Ord)
 
--- | This function mimics the (missing) 'ByXPath'' constructor of the
--- 'Selector' type.
+-- | This function mimics the 'ByXPath' constructor of the 'Selector'
+-- type, but it takes a mini-dsl instead of a string for the xpath
+-- expression.
 byXPath :: XPath -> Selector
 byXPath (XPath ors) = byXPath' ors
 
@@ -160,12 +161,13 @@ testSuite =
     (XPath [[XPathText]], "/text()") :
     (XPath [[XPathQualified "a" (XPathIx 3)]], "/a[3]") :
     (XPath [[XPathQualified "a" XPathLast]], "/a[last()]") :
-    (XPath [[XPathQualified "a" (XPathAttrEq "fi" "ooph")]], "/a[@fi=\"ooph\"]") :
+    (XPath [[XPathQualified "a" (XPathAttrEq "fi" "ooph")]], "/*[@fi=\"ooph\"]") :  -- just match xml attr, not elem.
     (XPath [[XPathQualified "a" (XPathTextEq "ouph")]], "/a[text()=\"ouph\"]") :
     (XPath [[XPathDeepAny, XPathTag "a"]], "//a") :
     (XPath [[XPathTag "b", XPathDeepAny, XPathTag "a"]], "/b//a") :
     (XPath [[XPathDeepAny, XPathTag "a"], [XPathDeepAny, XPathTag "button"]], "//a|//button") :
     []
+
 
 runTestSuite :: IO ()
 runTestSuite = mapM_ (putStrLn . cs . f) testSuite

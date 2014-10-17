@@ -288,15 +288,19 @@ waitForConditionNgScope tickms stableticks (scopeNick, element) args code = wait
 -- > screenshot >>= liftIO . LBS.writeFile "/tmp/x.png"
 -- > getLogTypes >>= mapM getLogs >>= liftIO . mapM (mapM (putStrLn . show))
 -- > serverStatus >>= liftIO . print
+--
+-- NOTE: Console download is a bit fragile because e.g. 'openPage'
+-- destroys the javascript heap, and thus also the local copy of the
+-- console.
 hijackBrowserConsole :: WebDriver wd => wd ()
 hijackBrowserConsole =
     evalJS' []
-        [ "if (typeof " <> jsscopeGet "__console__" <> " === 'undefined') {"
-        , "    " <> jsscopeSet "__console__" "[]"
+        [ "if (typeof window.__console__ === 'undefined') {"
         , "    var log_ = console.log;"
-        , "    console.log = function(...args) {"
-        , "        " <> jsscopeGet "__console__" <> ".push(args);"
-        , "        log_(args);"
+        , "    __console__ = [];"
+        , "    console.log = function() {"
+        , "        window.__console__.push(arguments);"
+        , "        log_.apply(console, arguments);"
         , "    };"
         , "}"
         ]
@@ -304,17 +308,11 @@ hijackBrowserConsole =
 
 -- | Download copy of browser logs.  This only works from the moment
 -- you call 'hijackBrowserConsole'.
-getBrowserConsole :: WebDriver wd => wd [[JS.Value]]
-getBrowserConsole = evalJS [] ["return " <> jsscopeGet "__console__"]
+getBrowserConsole :: WebDriver wd => wd JS.Value
+getBrowserConsole = evalJS [] ["return window.__console__"]
 
 
 -- | Dump browser logs to stdout (in 'WD').  Only works from the
 -- moment you call 'hijackBrowserConsole'.
 printBrowserConsole :: (MonadIO wd, WebDriver wd) => wd ()
 printBrowserConsole = getBrowserConsole >>= liftIO . putStrLn . ppShow
-
-
--- | Dump browser logs to stdout (in 'IO').  Only works from the
--- moment you call 'hijackBrowserConsole'.
-printBrowserConsoleIO :: WDSession -> IO ()
-printBrowserConsoleIO session = runWD session getBrowserConsole >>= putStrLn . ppShow
