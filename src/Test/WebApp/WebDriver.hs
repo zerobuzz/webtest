@@ -51,8 +51,10 @@ import Text.Printf
 import Text.Show.Pretty
 
 import qualified Data.Aeson as JS
+import qualified Data.Aeson.Encode.Pretty as JS
 import qualified Data.Map as Map
 import qualified Data.Text as ST
+import qualified Data.ByteString.Lazy as LBS
 
 import Test.QuickCheck.Missing
 
@@ -315,4 +317,4 @@ getBrowserConsole = evalJS [] ["return window.__console__"]
 -- | Dump browser logs to stdout (in 'WD').  Only works from the
 -- moment you call 'hijackBrowserConsole'.
 printBrowserConsole :: (MonadIO wd, WebDriver wd) => wd ()
-printBrowserConsole = getBrowserConsole >>= liftIO . putStrLn . ppShow
+printBrowserConsole = getBrowserConsole >>= liftIO . LBS.putStrLn . JS.encodePretty
