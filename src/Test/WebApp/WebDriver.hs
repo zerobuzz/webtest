@@ -275,6 +275,9 @@ waitForConditionNgScope tickms stableticks (scopeNick, element) args code = wait
 
 -- * Browser state inspection
 
+newtype ConsoleLog = ConsoleLog { fromConsoleLog :: JS.Value }
+  deriving (Eq, Show)
+
 -- | Overload console.log method and push all logged data to
 -- 'jsscope'.  See also 'getBrowserConsole'.  You should try to not
 -- call this more than once because that wouldn't be very elegant, but
@@ -310,11 +313,11 @@ hijackBrowserConsole =
 
 -- | Download copy of browser logs.  This only works from the moment
 -- you call 'hijackBrowserConsole'.
-getBrowserConsole :: WebDriver wd => wd JS.Value
-getBrowserConsole = evalJS [] ["return window.__console__"]
+getBrowserConsole :: WebDriver wd => wd ConsoleLog
+getBrowserConsole = ConsoleLog <$> evalJS [] ["return window.__console__"]
 
 
 -- | Dump browser logs to stdout (in 'WD').  Only works from the
 -- moment you call 'hijackBrowserConsole'.
 printBrowserConsole :: (MonadIO wd, WebDriver wd) => wd ()
-printBrowserConsole = getBrowserConsole >>= liftIO . LBS.putStrLn . JS.encodePretty
+printBrowserConsole = getBrowserConsole >>= liftIO . LBS.putStr . (<> "\n") . JS.encodePretty . fromConsoleLog
